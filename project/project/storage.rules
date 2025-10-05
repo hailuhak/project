@@ -1,0 +1,26 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Course materials - accessible to enrolled users and instructors
+    match /courses/{courseId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && 
+        (request.auth.uid in resource.metadata.instructors ||
+         request.auth.uid in resource.metadata.admins);
+    }
+    
+    // User profile pictures
+    match /users/{userId}/profile/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null;
+    }
+    
+    // General uploads - restrict file size and types
+    match /{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null 
+        && request.resource.size < 10 * 1024 * 1024  // 10MB limit
+        && request.resource.contentType.matches('image/.*|application/pdf|text/.*|application/vnd\..*');
+    }
+  }
+}
