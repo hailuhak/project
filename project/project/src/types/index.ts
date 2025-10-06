@@ -39,17 +39,21 @@ export interface TrainingSession {
     studentId: string;
     studentName: string;
     status?: "present" | "absent";
+    trainerName?: string;  
   }[];
 }
 
 
+// types.ts
 export interface ActivityLog {
   id: string;
-  userId: string;
   userName: string;
+  userId: string;                        
+  userRole: "admin" | "trainer" | "trainee"; 
+  trainerId?: string;                   
   action: string;
-  target: string;
-  details: string;
+  target?: string;                        
+  details?: string;                      
   timestamp: Date;
 }
 

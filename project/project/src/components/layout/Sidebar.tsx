@@ -39,7 +39,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
     { id: 'progress', label: 'Progress', icon: BarChart3, roles: ['trainee'] },
     { id: 'schedule', label: 'Schedule', icon: Calendar, roles: ['trainee'] },
     { id: 'resources', label: 'Resources', icon: FileText, roles: ['trainee'] },
-    { id: 'elearning', label: 'E-Learning', icon: Monitor, roles: ['trainee'] },
 
     { id: 'courses', label: 'Browse Courses', icon: BookOpen, roles: ['pending'] },
     { id: 'profile', label: 'Profile', icon: Users, roles: ['pending'] },

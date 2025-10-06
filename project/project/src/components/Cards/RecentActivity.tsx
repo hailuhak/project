@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader } from '../ui/Card';
 import { db } from '../../lib/firebase';
 import { collection, query, orderBy, limit, onSnapshot, Timestamp } from 'firebase/firestore';
 
+// ✅ Activity log type
 export interface ActivityLog {
   id: string;
   userName: string;
@@ -14,57 +15,22 @@ export interface ActivityLog {
   timestamp: Date;
 }
 
+// ✅ Props for RecentActivity
 interface RecentActivityProps {
-  logs?: ActivityLog[];
-  loading?: boolean;
+  logs?: ActivityLog[];   // optional pre-fetched logs
+  loading?: boolean;      // optional loading state if logs provided
+  limitCount?: number;    // optional limit, default 5
 }
 
-export const RecentActivity: React.FC<RecentActivityProps> = ({ logs: propLogs, loading: propLoading }) => {
+export const RecentActivity: React.FC<RecentActivityProps> = ({
+  logs: propLogs,
+  loading: propLoading,
+  limitCount = 5,
+}) => {
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (propLogs !== undefined) {
-      const formattedLogs = propLogs.map((log) => ({
-        ...log,
-        timestamp: log.timestamp instanceof Date ? log.timestamp : new Date(log.timestamp),
-      }));
-      setActivities(formattedLogs.slice(0, 5));
-      setLoading(propLoading ?? false);
-      return;
-    }
-
-    const q = query(
-      collection(db, 'activityLogs'),
-      orderBy('timestamp', 'desc'),
-      limit(5)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetched: ActivityLog[] = snapshot.docs.map((doc) => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          userName: data.userName || 'Unknown',
-          action: data.action || '',
-          target: data.target || '',
-          details: data.details || '',
-          timestamp: data.timestamp instanceof Timestamp
-            ? data.timestamp.toDate()
-            : new Date(data.timestamp),
-        };
-      });
-
-      setActivities(fetched);
-      setLoading(false);
-    }, (error) => {
-      console.error('Failed to fetch recent activities:', error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [propLogs, propLoading]);
-
+  // ✅ Format timestamp to human-readable string
   const formatTime = (date: Date) => {
     const now = new Date();
     const diff = now.getTime() - date.getTime();
@@ -78,6 +44,56 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ logs: propLogs, 
     return 'Just now';
   };
 
+  // ✅ Fetch activities
+  useEffect(() => {
+    if (propLogs) {
+      // Use provided logs if available
+      const formattedLogs = propLogs.map((log) => ({
+        ...log,
+        timestamp: log.timestamp instanceof Date ? log.timestamp : new Date(log.timestamp),
+      }));
+      setActivities(formattedLogs.slice(0, limitCount));
+      setLoading(propLoading ?? false);
+      return;
+    }
+
+    // Fetch from Firestore if no logs provided
+    const q = query(
+      collection(db, 'activityLogs'),
+      orderBy('timestamp', 'desc'),
+      limit(limitCount)
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const fetched: ActivityLog[] = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            userName: data.userName || 'Unknown',
+            action: data.action || '',
+            target: data.target || '',
+            details: data.details || '',
+            timestamp:
+              data.timestamp instanceof Timestamp
+                ? data.timestamp.toDate()
+                : new Date(data.timestamp),
+          };
+        });
+        setActivities(fetched);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Failed to fetch recent activities:', error);
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [propLogs, propLoading, limitCount]);
+
+  // ✅ Loading placeholder
   if (loading) {
     return (
       <Card>
@@ -88,7 +104,7 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ logs: propLogs, 
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {[...Array(3)].map((_, i) => (
+            {[...Array(limitCount)].map((_, i) => (
               <div key={i} className="flex items-center space-x-3 animate-pulse">
                 <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full" />
                 <div className="flex-1 space-y-2">
@@ -103,6 +119,7 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ logs: propLogs, 
     );
   }
 
+  // ✅ Render activity list
   return (
     <Card>
       <CardHeader>
@@ -130,13 +147,10 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ logs: propLogs, 
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-900 dark:text-white">
-                    <span className="font-medium">{activity.userName}</span>
-                    {' '}{activity.action} {activity.target}
+                    <span className="font-medium">{activity.userName}</span> {activity.action} {activity.target}
                   </p>
                   {activity.details && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      {activity.details}
-                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{activity.details}</p>
                   )}
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                     {formatTime(activity.timestamp)}

@@ -27,16 +27,16 @@ export const TrainerOverview: React.FC = () => {
   useEffect(() => {
     if (!currentUser) return;
 
-    // Filter trainer courses
+    // Filter trainer's courses
     const trainerCourses = allCourses.filter(
       (course) => String(course.instructorId) === currentUser.uid
     );
     setMyCourses(trainerCourses);
 
-    // Count active sessions
+    // Active sessions
     const activeSessions = trainerCourses.filter((c) => c.status === "active").length;
 
-    // Compute completion rate: % of courses completed
+    // Completion rate
     const completedCourses = trainerCourses.filter((c) => c.status === "completed").length;
     const completionRate = trainerCourses.length
       ? +((completedCourses / trainerCourses.length) * 100).toFixed(1)
@@ -49,12 +49,12 @@ export const TrainerOverview: React.FC = () => {
       completionRate,
     }));
 
-    // Fetch enrollments for trainer's courses to calculate total students
+    // Fetch enrollments for trainer's courses
     if (trainerCourses.length === 0) return;
 
     const courseIds = trainerCourses.map((c) => c.id);
     const enrollmentCol = collection(db, "enrollments");
-    const q = query(enrollmentCol, where("courses", "!=", [])); // get enrollments with courses
+    const q = query(enrollmentCol, where("courses", "!=", [])); // Firestore array check
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const studentsSet = new Set<string>();
@@ -101,6 +101,7 @@ export const TrainerOverview: React.FC = () => {
 
       {/* Courses and Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Recent Courses */}
         <div className="lg:col-span-2">
           <Card>
             <CardHeader>
@@ -134,9 +135,8 @@ export const TrainerOverview: React.FC = () => {
           </Card>
         </div>
 
-        <div>
-          <RecentActivity />
-        </div>
+        {/* Recent Activity */}
+        <RecentActivity userId={currentUser?.uid || ""} limitCount={4} />
       </div>
     </div>
   );
