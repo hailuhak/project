@@ -8,9 +8,6 @@ import { TrainerDashboard } from './dashboards/TrainerDashbord/TrainerDashbord';
 import { UserDashboard } from './dashboards/AllUserDashbord/UserDashboard';
 import { PendingUsers } from './dashboards/AdminDashbored/PendingUsers';
 
-import Sessions from './dashboards/AdminDashbored/Session';
-import GradeReport from './dashboards/AdminDashbored/GradeReport';
-
 import { useAuth } from '../contexts/AuthContext';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';

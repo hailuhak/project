@@ -1,112 +1,137 @@
 import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "../../../components/ui/Card";
-import { collection, getDocs, doc, updateDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { db, auth } from "../../../lib/firebase";
+import {
+  collection,
+  getDocs,
+  doc,
+  setDoc,
+  updateDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db } from "../../../lib/firebase";
 
-// Utility: Convert average score to letter grade
-const getGradeLetter = (avg: number): string => {
-  if (avg >= 90) return "A";
-  if (avg >= 80) return "B";
-  if (avg >= 70) return "C";
-  if (avg >= 60) return "D";
+// Convert numeric grade to letter grade
+const getGradeLetter = (grade: number) => {
+  if (grade >= 90) return "A";
+  if (grade >= 80) return "B";
+  if (grade >= 70) return "C";
+  if (grade >= 60) return "D";
   return "F";
 };
 
-interface Course {
-  name: string;
-  points: number;
-  max: number;
+interface GradeItem {
+  courseId: string;
+  courseTitle: string;
+  grade: number;
+  letterGrade: string;
 }
 
 interface GradeRecord {
-  id: string;
-  trainee: string;
-  courses: Course[];
+  traineeId: string;
+  traineeName: string;
+  courses: GradeItem[];
   total: number;
-  maxTotal: number;
   average: number;
-  gradeLetter: string;
   cgpa: string;
 }
 
 export default function GradeReport() {
   const [grades, setGrades] = useState<GradeRecord[]>([]);
+  const [loading, setLoading] = useState(true);
 
+  // Fetch grades from Firestore
   useEffect(() => {
     const fetchGrades = async () => {
       const snapshot = await getDocs(collection(db, "grades"));
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as any[];
-      const processed: GradeRecord[] = data.map((g) => processGrade(g));
-      setGrades(processed);
+      const data: any[] = snapshot.docs.map((doc) => doc.data());
+
+      const traineeMap: { [key: string]: GradeRecord } = {};
+
+      data.forEach((g) => {
+        if (!traineeMap[g.traineeId]) {
+          traineeMap[g.traineeId] = {
+            traineeId: g.traineeId,
+            traineeName: g.traineeName,
+            courses: [],
+            total: 0,
+            average: 0,
+            cgpa: "0.00",
+          };
+        }
+
+        traineeMap[g.traineeId].courses.push({
+          courseId: g.courseId,
+          courseTitle: g.courseTitle,
+          grade: g.grade,
+          letterGrade: getGradeLetter(g.grade),
+        });
+      });
+
+      Object.values(traineeMap).forEach((t) => {
+        const total = t.courses.reduce((sum, c) => sum + c.grade, 0);
+        const maxTotal = t.courses.length * 100;
+        const average = (total / maxTotal) * 100;
+        t.total = total;
+        t.average = average;
+        t.cgpa = (average / 25).toFixed(2);
+      });
+
+      setGrades(Object.values(traineeMap));
+      setLoading(false);
     };
+
     fetchGrades();
   }, []);
 
-  // Process grade to calculate total, avg, letter grade, CGPA
-  const processGrade = (g: any): GradeRecord => {
-    const total = g.courses.reduce((sum: number, c: Course) => sum + Number(c.points), 0);
-    const maxTotal = g.courses.reduce((sum: number, c: Course) => sum + Number(c.max), 0);
-    const avg = (total / maxTotal) * 100;
+  // Save all grades to Firestore
+  const handleSaveAll = async () => {
+    for (const t of grades) {
+      for (const course of t.courses) {
+        const snapshot = await getDocs(collection(db, "grades"));
+        const docExist = snapshot.docs.find(
+          (d) =>
+            d.data().traineeId === t.traineeId &&
+            d.data().courseId === course.courseId
+        );
 
-    return {
-      id: g.id,
-      trainee: g.trainee,
-      courses: g.courses,
-      total,
-      maxTotal,
-      average: avg,
-      gradeLetter: getGradeLetter(avg),
-      cgpa: (avg / 25).toFixed(2),
-    };
-  };
-
-  // Activity log helper
-  const logActivity = async (action: string, target: string, message?: string) => {
-    try {
-      await setDoc(doc(collection(db, "activityLogs")), {
-        userName: auth.currentUser?.displayName || "Admin",
-        action,
-        target,
-        message: message || "",
-        timestamp: serverTimestamp(),
-      });
-    } catch (err) {
-      console.error("Failed to log activity:", err);
+        if (docExist) {
+          const ref = doc(db, "grades", docExist.id);
+          await updateDoc(ref, {
+            grade: course.grade,
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          await setDoc(doc(collection(db, "grades")), {
+            traineeId: t.traineeId,
+            traineeName: t.traineeName,
+            courseId: course.courseId,
+            courseTitle: course.courseTitle,
+            grade: course.grade,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
     }
+    alert("✅ All grades saved successfully!");
   };
 
-  // Update course score
-  const handleScoreChange = async (gIndex: number, cIndex: number, value: string) => {
-    const updatedGrades = [...grades];
-    const courseName = updatedGrades[gIndex].courses[cIndex].name;
-    const traineeName = updatedGrades[gIndex].trainee;
-
-    updatedGrades[gIndex].courses[cIndex].points = Number(value);
-
-    // Recalculate totals
-    const updatedRecord = processGrade(updatedGrades[gIndex]);
-    updatedGrades[gIndex] = updatedRecord;
-    setGrades(updatedGrades);
-
-    // Save to Firestore
-    const ref = doc(db, "grades", updatedRecord.id);
-    await updateDoc(ref, { courses: updatedRecord.courses });
-
-    // Log activity
-    await logActivity(
-      "update",
-      `${traineeName} - ${courseName}`,
-      `Score updated to ${value}`
-    );
-  };
+  if (loading)
+    return <div className="p-6 text-gray-700 dark:text-gray-300">Loading...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col items-start justify-start p-6">
-      <Card className="w-full max-w-6xl shadow-lg">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Grade Report</h2>
+        <button
+          onClick={handleSaveAll}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+        >
+          Save All
+        </button>
+      </div>
+
+      <Card className="w-full max-w-7xl shadow-lg">
         <CardContent>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-            Grade Report
-          </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border border-gray-300 dark:border-gray-700">
               <thead className="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 sticky top-0 z-10">
@@ -114,52 +139,59 @@ export default function GradeReport() {
                   <th className="border px-4 py-2">Trainee</th>
                   <th className="border px-4 py-2">Courses</th>
                   <th className="border px-4 py-2">Result (100%)</th>
+                  <th className="border px-4 py-2">Letter Grade</th>
                   <th className="border px-4 py-2">Total</th>
                   <th className="border px-4 py-2">Average (%)</th>
-                  <th className="border px-4 py-2">Grade</th>
                   <th className="border px-4 py-2">CGPA</th>
                 </tr>
               </thead>
               <tbody>
-                {grades.map((g, gIndex) => (
-                  <tr key={g.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-                    <td className="border px-4 py-2 font-medium">{g.trainee}</td>
+                {grades.map((t) => (
+                  <tr
+                    key={t.traineeId}
+                    className="hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                  >
+                    <td className="border px-4 py-2 font-medium text-gray-900 dark:text-gray-200">
+                      {t.traineeName}
+                    </td>
 
-                    {/* List of Courses */}
-                    <td className="border px-4 py-2">
-                      {g.courses.map((c, i) => (
-                        <div key={i}>{c.name}</div>
+                    <td className="border px-4 py-2 text-gray-800 dark:text-gray-300">
+                      {t.courses.map((c) => (
+                        <div key={c.courseId}>{c.courseTitle}</div>
                       ))}
                     </td>
 
-                    {/* Editable Results per course */}
-                    <td className="border px-4 py-2">
-                      {g.courses.map((c, i) => (
-                        <div key={i} className="flex items-center space-x-2">
-                          <input
-                            type="number"
-                            min="0"
-                            max={c.max}
-                            value={c.points}
-                            onChange={(e) => handleScoreChange(gIndex, i, e.target.value)}
-                            className="w-20 px-2 py-1 border rounded text-sm dark:bg-gray-800 dark:text-white"
-                          />
-                          <span>/ {c.max}</span>
+                    {/* Read-only Result */}
+                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">
+                      {t.courses.map((c) => (
+                        <div
+                          key={c.courseId}
+                          className="mb-1 px-2 py-1 border rounded bg-gray-200 dark:bg-gray-700 text-center"
+                        >
+                          {c.grade}
                         </div>
                       ))}
                     </td>
 
-                    {/* Totals */}
-                    <td className="border px-4 py-2">{g.total} / {g.maxTotal}</td>
+                    {/* Letter Grade */}
+                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">
+                      {t.courses.map((c) => (
+                        <div
+                          key={c.courseId}
+                          className={`mb-1 px-2 py-1 border rounded text-center ${
+                            c.grade < 60
+                              ? "bg-red-200 dark:bg-red-700 text-red-800 dark:text-red-200 font-bold"
+                              : "bg-green-200 dark:bg-green-700 text-green-800 dark:text-green-200"
+                          }`}
+                        >
+                          {c.letterGrade}
+                        </div>
+                      ))}
+                    </td>
 
-                    {/* Average */}
-                    <td className="border px-4 py-2">{g.average.toFixed(2)}%</td>
-
-                    {/* Grade */}
-                    <td className="border px-4 py-2 font-semibold text-center">{g.gradeLetter}</td>
-
-                    {/* CGPA */}
-                    <td className="border px-4 py-2">{g.cgpa}</td>
+                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">{t.total}</td>
+                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">{t.average.toFixed(2)}%</td>
+                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">{t.cgpa}</td>
                   </tr>
                 ))}
               </tbody>

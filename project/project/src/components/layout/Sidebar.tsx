@@ -34,6 +34,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
     { id: 'sessions', label: 'Training Sessions', icon: Calendar, roles: ['trainer'] },
     { id: 'attendance', label: 'Attendance', icon: UserCheck, roles: ['trainer'] },
     { id: 'materials', label: 'Materials', icon: FileText, roles: ['trainer'] },
+    { id: 'grades', label: 'Trainee Grades', icon: BarChart3, roles: ['trainer'] },
 
     { id: 'courses', label: 'My Courses', icon: GraduationCap, roles: ['trainee'] },
     { id: 'progress', label: 'Progress', icon: BarChart3, roles: ['trainee'] },
