@@ -2,7 +2,13 @@ import React, { useEffect, useState } from "react";
 import { Card, CardContent } from "../../../components/ui/Card";
 import { Calendar, Filter } from "lucide-react";
 import { db } from "../../../lib/firebase";
-import { collection, query, where, onSnapshot, DocumentData } from "firebase/firestore";
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  DocumentData,
+} from "firebase/firestore";
 import { useAuth } from "../../../contexts/AuthContext";
 
 interface TrainingSession {
@@ -22,16 +28,15 @@ export const Schedule: React.FC = () => {
   useEffect(() => {
     if (!currentUser) return;
 
+    // Listen to enrollments for current user in real-time
     const enrollmentRef = collection(db, "enrollments");
-    const q = query(enrollmentRef, where("userId", "==", currentUser.uid));
+    const enrollmentQuery = query(enrollmentRef, where("userId", "==", currentUser.uid));
 
-    const unsubscribeEnrollments = onSnapshot(q, (enrollmentSnap) => {
+    const unsubscribeEnrollments = onSnapshot(enrollmentQuery, (enrollmentSnap) => {
       const courseIds: string[] = [];
 
-      enrollmentSnap.docs.forEach((doc) => {
-        const data = doc.data();
-
-        // ✅ Extract courseIds from the nested courses array
+      enrollmentSnap.docs.forEach((docSnap) => {
+        const data = docSnap.data();
         if (data.courses && Array.isArray(data.courses)) {
           data.courses.forEach((c: any) => {
             if (c.courseId) courseIds.push(c.courseId);
@@ -39,14 +44,13 @@ export const Schedule: React.FC = () => {
         }
       });
 
-      console.log("Collected courseIds:", courseIds);
-
       if (courseIds.length === 0) {
         setSessions([]);
         setLoading(false);
         return;
       }
 
+      // Listen to all relevant training sessions in real-time
       const sessionsRef = collection(db, "trainingSessions");
       const batches: string[][] = [];
       for (let i = 0; i < courseIds.length; i += 10) {
@@ -58,29 +62,34 @@ export const Schedule: React.FC = () => {
 
       batches.forEach((batchIds) => {
         const sessionsQuery = query(sessionsRef, where("courseId", "in", batchIds));
+
         const unsub = onSnapshot(sessionsQuery, (snap) => {
-          snap.docs.forEach((doc) => {
-            const data = doc.data() as DocumentData;
+          snap.docChanges().forEach((change) => {
+            const data = change.doc.data() as DocumentData;
             const sessionDate: Date = data.date?.toDate
               ? data.date.toDate()
               : new Date(data.date);
 
             const sessionObj: TrainingSession = {
-              id: doc.id,
+              id: change.doc.id,
               courseId: data.courseId,
               courseName: data.courseName,
               date: sessionDate,
               hours: data.hours || 0,
             };
 
-            const index = allSessions.findIndex((s) => s.id === doc.id);
-            if (index > -1) {
-              allSessions[index] = sessionObj;
-            } else {
+            if (change.type === "added") {
               allSessions.push(sessionObj);
+            } else if (change.type === "modified") {
+              const index = allSessions.findIndex((s) => s.id === change.doc.id);
+              if (index > -1) allSessions[index] = sessionObj;
+            } else if (change.type === "removed") {
+              const index = allSessions.findIndex((s) => s.id === change.doc.id);
+              if (index > -1) allSessions.splice(index, 1);
             }
           });
 
+          // Sort sessions by date
           const sorted = allSessions.sort((a, b) => a.date.getTime() - b.date.getTime());
           setSessions([...sorted]);
           setLoading(false);
@@ -129,7 +138,7 @@ export const Schedule: React.FC = () => {
         </div>
       </div>
 
-      {/* Table Display */}
+      {/* Table */}
       {loading ? (
         <p className="text-gray-500 dark:text-gray-400">Loading schedule...</p>
       ) : filteredSessions.length === 0 ? (
@@ -137,9 +146,7 @@ export const Schedule: React.FC = () => {
           <CardContent>
             <div className="text-center py-12">
               <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500 dark:text-gray-400">
-                No sessions found for this filter.
-              </p>
+              <p className="text-gray-500 dark:text-gray-400">No sessions found for this filter.</p>
             </div>
           </CardContent>
         </Card>
@@ -170,9 +177,7 @@ export const Schedule: React.FC = () => {
                   <tr key={session.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition">
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{index + 1}</td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{session.courseName}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
-                      {session.date.toLocaleString()}
-                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{session.date.toLocaleString()}</td>
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{session.hours}</td>
                     <td
                       className={`px-4 py-3 text-sm font-semibold ${

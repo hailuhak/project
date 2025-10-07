@@ -5,7 +5,7 @@ import { Progress } from "./Progress";
 import { Schedule } from "./Schedule";
 import { Resources } from "./Resources";
 import { DashboardOverview } from "./DashboardOverview";
-
+import TraineeGrades from "./TraineeGrade";
 interface TraineeDashboardProps {
   activeSection: string;
 }
@@ -33,6 +33,9 @@ export const TraineeDashboard: React.FC<TraineeDashboardProps> = ({
       return <Schedule />;
     case "resources":
       return <Resources />;
+    case "grades":
+      return <TraineeGrades />;
+    
     default:
       return <DashboardOverview currentUser={currentUser} />;
   }

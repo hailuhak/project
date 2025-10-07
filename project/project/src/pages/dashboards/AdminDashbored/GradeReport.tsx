@@ -1,22 +1,29 @@
 import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "../../../components/ui/Card";
-import {
-  collection,
-  getDocs,
-  doc,
-  setDoc,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { collection, doc, setDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
 // Convert numeric grade to letter grade
 const getGradeLetter = (grade: number) => {
-  if (grade >= 90) return "A";
-  if (grade >= 80) return "B";
-  if (grade >= 70) return "C";
-  if (grade >= 60) return "D";
+  if (grade >= 90) return "A+";
+  if (grade >= 85) return "A";
+  if (grade >= 80) return "A-";
+  if (grade >= 75) return "B+";
+  if (grade >= 70) return "B";
+  if (grade >= 65) return "B-";
+  if (grade >= 60) return "C+";
+  if (grade >= 55) return "C";
+  if (grade >= 50) return "D";
   return "F";
+};
+
+// Determine color based on grade
+const getLetterGradeColor = (grade: number) => {
+  if (grade >= 80)
+    return "bg-green-200 dark:bg-green-700 text-green-800 dark:text-green-200";
+  if (grade >= 60)
+    return "bg-yellow-200 dark:bg-yellow-700 text-yellow-800 dark:text-yellow-200";
+  return "bg-red-200 dark:bg-red-700 text-red-800 dark:text-red-200 font-bold";
 };
 
 interface GradeItem {
@@ -39,12 +46,10 @@ export default function GradeReport() {
   const [grades, setGrades] = useState<GradeRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch grades from Firestore
+  // Real-time listener for grades
   useEffect(() => {
-    const fetchGrades = async () => {
-      const snapshot = await getDocs(collection(db, "grades"));
+    const unsubscribe = onSnapshot(collection(db, "grades"), (snapshot) => {
       const data: any[] = snapshot.docs.map((doc) => doc.data());
-
       const traineeMap: { [key: string]: GradeRecord } = {};
 
       data.forEach((g) => {
@@ -78,41 +83,30 @@ export default function GradeReport() {
 
       setGrades(Object.values(traineeMap));
       setLoading(false);
-    };
+    });
 
-    fetchGrades();
+    return () => unsubscribe(); // Cleanup listener on unmount
   }, []);
 
-  // Save all grades to Firestore
+  // Save all grades to "finalGrade" collection
   const handleSaveAll = async () => {
-    for (const t of grades) {
-      for (const course of t.courses) {
-        const snapshot = await getDocs(collection(db, "grades"));
-        const docExist = snapshot.docs.find(
-          (d) =>
-            d.data().traineeId === t.traineeId &&
-            d.data().courseId === course.courseId
-        );
-
-        if (docExist) {
-          const ref = doc(db, "grades", docExist.id);
-          await updateDoc(ref, {
-            grade: course.grade,
-            updatedAt: serverTimestamp(),
-          });
-        } else {
-          await setDoc(doc(collection(db, "grades")), {
-            traineeId: t.traineeId,
-            traineeName: t.traineeName,
-            courseId: course.courseId,
-            courseTitle: course.courseTitle,
-            grade: course.grade,
-            createdAt: serverTimestamp(),
-          });
-        }
+    try {
+      for (const t of grades) {
+        await setDoc(doc(collection(db, "finalGrade")), {
+          traineeId: t.traineeId,
+          traineeName: t.traineeName,
+          courses: t.courses,
+          total: t.total,
+          average: t.average,
+          cgpa: t.cgpa,
+          createdAt: serverTimestamp(),
+        });
       }
+      alert("✅ All grades saved successfully to finalGrade collection!");
+    } catch (error) {
+      console.error("Error saving grades:", error);
+      alert("❌ Failed to save grades. Check console for details.");
     }
-    alert("✅ All grades saved successfully!");
   };
 
   if (loading)
@@ -121,7 +115,9 @@ export default function GradeReport() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Grade Report</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+          Grade Report
+        </h2>
         <button
           onClick={handleSaveAll}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
@@ -154,44 +150,53 @@ export default function GradeReport() {
                     <td className="border px-4 py-2 font-medium text-gray-900 dark:text-gray-200">
                       {t.traineeName}
                     </td>
-
                     <td className="border px-4 py-2 text-gray-800 dark:text-gray-300">
-                      {t.courses.map((c) => (
-                        <div key={c.courseId}>{c.courseTitle}</div>
-                      ))}
-                    </td>
-
-                    {/* Read-only Result */}
-                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">
-                      {t.courses.map((c) => (
-                        <div
-                          key={c.courseId}
-                          className="mb-1 px-2 py-1 border rounded bg-gray-200 dark:bg-gray-700 text-center"
-                        >
-                          {c.grade}
+                      {t.courses.map((c, idx) => (
+                        <div key={c.courseId}>
+                          {c.courseTitle}
+                          {idx < t.courses.length - 1 && (
+                            <hr className="border-t border-gray-400 dark:border-gray-600 my-1" />
+                          )}
                         </div>
                       ))}
                     </td>
-
-                    {/* Letter Grade */}
                     <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">
-                      {t.courses.map((c) => (
-                        <div
-                          key={c.courseId}
-                          className={`mb-1 px-2 py-1 border rounded text-center ${
-                            c.grade < 60
-                              ? "bg-red-200 dark:bg-red-700 text-red-800 dark:text-red-200 font-bold"
-                              : "bg-green-200 dark:bg-green-700 text-green-800 dark:text-green-200"
-                          }`}
-                        >
-                          {c.letterGrade}
+                      {t.courses.map((c, idx) => (
+                        <div key={c.courseId}>
+                          <div className="px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-center">
+                            {c.grade}
+                          </div>
+                          {idx < t.courses.length - 1 && (
+                            <hr className="border-t border-gray-400 dark:border-gray-600 my-1" />
+                          )}
                         </div>
                       ))}
                     </td>
-
-                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">{t.total}</td>
-                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">{t.average.toFixed(2)}%</td>
-                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">{t.cgpa}</td>
+                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">
+                      {t.courses.map((c, idx) => (
+                        <div key={c.courseId}>
+                          <div
+                            className={`px-2 py-1 rounded text-center ${getLetterGradeColor(
+                              c.grade
+                            )}`}
+                          >
+                            {c.letterGrade}
+                          </div>
+                          {idx < t.courses.length - 1 && (
+                            <hr className="border-t border-gray-400 dark:border-gray-600 my-1" />
+                          )}
+                        </div>
+                      ))}
+                    </td>
+                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">
+                      {t.total}
+                    </td>
+                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">
+                      {t.average.toFixed(2)}%
+                    </td>
+                    <td className="border px-4 py-2 text-gray-900 dark:text-gray-100">
+                      {t.cgpa}
+                    </td>
                   </tr>
                 ))}
               </tbody>
