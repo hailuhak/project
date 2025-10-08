@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader } from "../../../components/ui/Card";
-import { collection, onSnapshot, orderBy, query, limit } from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query, limit, Timestamp } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 import { ActivityLog } from "../../../types";
 import { Clock } from "lucide-react";
@@ -17,11 +17,22 @@ export const ActivityLogs: React.FC = () => {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const data: ActivityLog[] = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          timestamp: doc.data().timestamp?.toDate?.() || new Date(),
-        })) as ActivityLog[];
+        const data: ActivityLog[] = snapshot.docs.map((doc) => {
+          const docData = doc.data();
+          return {
+            id: doc.id,
+            userName: docData.userName || 'Unknown',
+            userId: docData.userId || '',
+            userRole: docData.userRole || 'trainee',
+            trainerId: docData.trainerId,
+            action: docData.action || '',
+            target: docData.target || '',
+            details: docData.details || '',
+            timestamp: docData.timestamp instanceof Timestamp
+              ? docData.timestamp.toDate()
+              : new Date(docData.timestamp),
+          };
+        });
 
         setLogs(data);
         setLoading(false);

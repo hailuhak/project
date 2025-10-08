@@ -45,10 +45,17 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({
       unsubscribe = onSnapshot(
         q,
         (snapshot) => {
-          const activityData: ActivityLog[] = snapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...(doc.data() as Omit<ActivityLog, "id">),
-          }));
+          const activityData: ActivityLog[] = snapshot.docs.map((doc) => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              action: data.action || '',
+              user: data.user || 'Unknown',
+              timestamp: data.timestamp instanceof Timestamp
+                ? data.timestamp.toDate()
+                : new Date(data.timestamp),
+            };
+          });
           setLogs(activityData);
           setLoading(false);
         },
@@ -62,10 +69,17 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({
       // One-time fetch
       getDocs(q)
         .then((snapshot) => {
-          const activityData: ActivityLog[] = snapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...(doc.data() as Omit<ActivityLog, "id">),
-          }));
+          const activityData: ActivityLog[] = snapshot.docs.map((doc) => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              action: data.action || '',
+              user: data.user || 'Unknown',
+              timestamp: data.timestamp instanceof Timestamp
+                ? data.timestamp.toDate()
+                : new Date(data.timestamp),
+            };
+          });
           setLogs(activityData);
         })
         .catch((err) => {
