@@ -48,8 +48,12 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({
   useEffect(() => {
     if (propLogs) {
       // Use provided logs if available
-      const formattedLogs = propLogs.map((log) => ({
-        ...log,
+      const formattedLogs = propLogs.map((log: any) => ({
+        id: log.id || '',
+        userName: log.userName || log.user || 'Unknown User',
+        action: log.action || '',
+        target: log.target || '',
+        details: log.details || log.description || '',
         timestamp: log.timestamp instanceof Date ? log.timestamp : new Date(log.timestamp),
       }));
       setActivities(formattedLogs.slice(0, limitCount));
@@ -69,12 +73,13 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({
       (snapshot) => {
         const fetched: ActivityLog[] = snapshot.docs.map((doc) => {
           const data = doc.data();
+
           return {
             id: doc.id,
-            userName: data.userName || 'Unknown',
+            userName: data.userName || data.user || 'Unknown User',
             action: data.action || '',
             target: data.target || '',
-            details: data.details || '',
+            details: data.details || data.description || '',
             timestamp:
               data.timestamp instanceof Timestamp
                 ? data.timestamp.toDate()
