@@ -1,22 +1,26 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Bell, User, LogOut, Settings, Sun, Moon, Menu } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Button } from '../ui/Button';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 
 export const Navbar: React.FC = () => {
   const { currentUser, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
-  const [pendingUsers, setPendingUsers] = React.useState<number>(0);
-  const [trainerNotifications, setTrainerNotifications] = React.useState<Set<string>>(new Set());
-  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const [pendingUsers, setPendingUsers] = useState<number>(0);
+  const [trainerNotifications, setTrainerNotifications] = useState<Set<string>>(new Set());
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // 🔴 Pending users
-  React.useEffect(() => {
+  const [userInfo, setUserInfo] = useState({ displayName: '', email: '' });
+  const [loadingInfo, setLoadingInfo] = useState(true);
+
+  // Fetch pending users count
+  useEffect(() => {
     const q = query(collection(db, 'pendingUsers'), orderBy('timestamp', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setPendingUsers(snapshot.size);
@@ -24,40 +28,63 @@ export const Navbar: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // 🟢 Grades notifications per trainer
-  React.useEffect(() => {
+  // Fetch trainer/admin notifications (unsaved grades)
+  useEffect(() => {
     let gradesData: any[] = [];
     let finalGradesData: any[] = [];
 
     const updateTrainerNotifications = (grades: any[], finalGrades: any[]) => {
-      const unsavedGrades = grades.filter(
-        g => !finalGrades.some(f => f.id === g.id)
-      );
-      const trainers = new Set(unsavedGrades.map(g => g.trainerId));
-      setTrainerNotifications(trainers);
+      const unsavedGrades = grades.filter((g) => !finalGrades.some((f) => f.id === g.id));
+      const trainersWithUnsaved = new Set(unsavedGrades.map((g) => g.trainerId || g.adminId));
+      setTrainerNotifications(trainersWithUnsaved);
     };
 
-    const unsubscribeGrades = onSnapshot(
-      query(collection(db, 'grades'), orderBy('updatedAt', 'desc')),
-      (snapshot) => {
-        gradesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        updateTrainerNotifications(gradesData, finalGradesData);
-      }
-    );
+    const unsubscribeGrades = onSnapshot(query(collection(db, 'grades'), orderBy('updatedAt', 'desc')), (snapshot) => {
+      gradesData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      updateTrainerNotifications(gradesData, finalGradesData);
+    });
 
-    const unsubscribeFinal = onSnapshot(
-      collection(db, 'finalGrades'),
-      (snapshot) => {
-        finalGradesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        updateTrainerNotifications(gradesData, finalGradesData);
-      }
-    );
+    const unsubscribeFinal = onSnapshot(collection(db, 'finalGrades'), (snapshot) => {
+      finalGradesData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      updateTrainerNotifications(gradesData, finalGradesData);
+    });
 
     return () => {
       unsubscribeGrades();
       unsubscribeFinal();
     };
   }, []);
+
+  // Fetch current user info from Firestore
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const fetchUserInfo = async () => {
+      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        setUserInfo({ displayName: data.displayName || '', email: data.email || '' });
+      }
+      setLoadingInfo(false);
+    };
+    fetchUserInfo();
+  }, [currentUser]);
+
+  // Save updated user info
+  const handleUpdateInfo = async () => {
+    if (!currentUser) return;
+    try {
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        displayName: userInfo.displayName,
+        email: userInfo.email,
+      });
+      alert('✅ User info updated successfully!');
+      setSettingsOpen(false);
+    } catch (error) {
+      console.error('Failed to update user info:', error);
+      alert('❌ Failed to update info. Try again.');
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -67,7 +94,7 @@ export const Navbar: React.FC = () => {
     }
   };
 
-  const gradeCount = trainerNotifications.size; // count of trainers with unsaved grades
+  const gradeCount = trainerNotifications.size;
 
   return (
     <>
@@ -89,25 +116,18 @@ export const Navbar: React.FC = () => {
 
             {/* Desktop Menu */}
             <div className="hidden lg:flex items-center space-x-4">
-              <Button variant="ghost" size="sm"><Settings className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(!settingsOpen)}>
+                <Settings className="w-4 h-4" />
+              </Button>
 
-              {/* Bell Icon with two badges */}
               <Button variant="ghost" size="sm">
                 <div className="relative">
                   <Bell className="w-5 h-5" />
-
-                  {/* Red badge: pending users */}
                   {pendingUsers > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">
-                      {pendingUsers}
-                    </span>
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">{pendingUsers}</span>
                   )}
-
-                  {/* Green badge: new grades per trainer */}
                   {gradeCount > 0 && (
-                    <span className="absolute -bottom-1 -right-1 bg-green-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">
-                      {gradeCount}
-                    </span>
+                    <span className="absolute -bottom-1 -right-1 bg-green-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">{gradeCount}</span>
                   )}
                 </div>
               </Button>
@@ -116,15 +136,10 @@ export const Navbar: React.FC = () => {
                 {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
               </Button>
 
-              {/* User Info */}
               <div className="flex items-center space-x-3">
                 <div className="text-right">
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {currentUser?.displayName || currentUser?.email}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                    {currentUser?.role}
-                  </p>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{currentUser?.displayName || currentUser?.email}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{currentUser?.role}</p>
                 </div>
                 <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
                   <User className="w-4 h-4 text-white" />
@@ -136,7 +151,7 @@ export const Navbar: React.FC = () => {
               </Button>
             </div>
 
-            {/* Mobile Hamburger */}
+            {/* Mobile Menu Button */}
             <div className="lg:hidden flex items-center space-x-2">
               <Button variant="ghost" size="sm" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
                 <Menu className="w-5 h-5" />
@@ -153,28 +168,52 @@ export const Navbar: React.FC = () => {
           </div>
         </div>
 
-        {/* Mobile Menu */}
+        {/* Settings Dropdown */}
+        {settingsOpen && (
+          <div className="absolute right-4 top-16 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-lg rounded-lg p-4 z-50">
+            <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-gray-100">Your Info</h3>
+            {loadingInfo ? (
+              <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+            ) : (
+              <>
+                <div className="mb-2">
+                  <label className="block text-sm text-gray-700 dark:text-gray-300">Display Name</label>
+                  <input
+                    type="text"
+                    value={userInfo.displayName}
+                    onChange={(e) => setUserInfo({ ...userInfo, displayName: e.target.value })}
+                    className="w-full p-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200"
+                  />
+                </div>
+                <div className="mb-2">
+                  <label className="block text-sm text-gray-700 dark:text-gray-300">Email</label>
+                  <input
+                    type="email"
+                    value={userInfo.email}
+                    onChange={(e) => setUserInfo({ ...userInfo, email: e.target.value })}
+                    className="w-full p-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200"
+                  />
+                </div>
+                <Button variant="primary" size="sm" onClick={handleUpdateInfo} className="w-full mt-2">
+                  Update Info
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Mobile Dropdown Menu */}
         {mobileMenuOpen && (
           <div className="lg:hidden bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-md">
             <div className="flex flex-col p-4 space-y-2">
-              <Button variant="ghost" size="sm"><Settings className="w-4 h-4 mr-2" /> Settings</Button>
-
+              <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(!settingsOpen)}><Settings className="w-4 h-4 mr-2" /> Settings</Button>
               <Button variant="ghost" size="sm">
                 <div className="relative flex items-center">
                   <Bell className="w-4 h-4 mr-2" /> Notifications
-                  {pendingUsers > 0 && (
-                    <span className="absolute -top-1 -right-2 bg-red-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">
-                      {pendingUsers}
-                    </span>
-                  )}
-                  {gradeCount > 0 && (
-                    <span className="absolute -bottom-1 -right-2 bg-green-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">
-                      {gradeCount}
-                    </span>
-                  )}
+                  {pendingUsers > 0 && <span className="absolute -top-1 -right-2 bg-red-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">{pendingUsers}</span>}
+                  {gradeCount > 0 && <span className="absolute -bottom-1 -right-2 bg-green-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">{gradeCount}</span>}
                 </div>
               </Button>
-
               <Button variant="ghost" size="sm" onClick={toggleTheme}>
                 {theme === 'light' ? <Moon className="w-4 h-4 mr-2" /> : <Sun className="w-4 h-4 mr-2" />} Theme
               </Button>

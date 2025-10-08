@@ -118,65 +118,56 @@ export default function GradeReport() {
     }
   };
 
-  // ✅ Save or update trainee records in "finalGrade"
-  const handleSaveAll = async () => {
-    try {
-      for (const t of grades) {
-        // Check if a document already exists for this trainee
-        const q = query(
-          collection(db, "finalGrade"),
-          where("traineeId", "==", t.traineeId)
-        );
-        const existingDocs = await getDocs(q);
+// ✅ Save or update trainee records in "finalGrade"
+const handleSaveAll = async () => {
+  try {
+    for (const t of grades) {
+      const q = query(
+        collection(db, "finalGrade"),
+        where("traineeId", "==", t.traineeId)
+      );
+      const existingDocs = await getDocs(q);
 
-        if (!existingDocs.empty) {
-          // 🔁 Update existing document
-          const existingDoc = existingDocs.docs[0];
-          await setDoc(
-            doc(db, "finalGrade", existingDoc.id),
-            {
-              traineeId: t.traineeId,
-              traineeName: t.traineeName,
-              courses: t.courses,
-              total: t.total,
-              average: t.average,
-              cgpa: t.cgpa,
-              updatedAt: serverTimestamp(),
-            },
-            { merge: true }
-          );
-          await logActivity(
-            "Admin",
-            "updated",
-            `finalGrade for ${t.traineeName}`,
-            `Updated all courses and grades`
-          );
-        } else {
-          // 🆕 Create a new document
-          await setDoc(doc(collection(db, "finalGrade")), {
+      if (!existingDocs.empty) {
+        const existingDoc = existingDocs.docs[0];
+        await setDoc(
+          doc(db, "finalGrade", existingDoc.id),
+          {
             traineeId: t.traineeId,
             traineeName: t.traineeName,
             courses: t.courses,
             total: t.total,
             average: t.average,
             cgpa: t.cgpa,
-            createdAt: serverTimestamp(),
-          });
-          await logActivity(
-            "Admin",
-            "added",
-            `finalGrade for ${t.traineeName}`,
-            `Created record with all courses and grades`
-          );
-        }
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        await setDoc(doc(collection(db, "finalGrade")), {
+          traineeId: t.traineeId,
+          traineeName: t.traineeName,
+          courses: t.courses,
+          total: t.total,
+          average: t.average,
+          cgpa: t.cgpa,
+          createdAt: serverTimestamp(),
+        });
       }
-
-      alert("✅ Grades saved/updated successfully with activity logs!");
-    } catch (error) {
-      console.error("Error saving grades:", error);
-      alert("❌ Failed to save grades. Check console for details.");
     }
-  };
+
+    // ✅ CLEAR GRADE NOTIFICATION FLAG
+    await setDoc(doc(db, "systemFlags", "gradeNotifications"), {
+      clearedAt: serverTimestamp(),
+    });
+
+    alert("✅ Grades saved and notifications cleared!");
+  } catch (error) {
+    console.error("Error saving grades:", error);
+    alert("❌ Failed to save grades. Check console for details.");
+  }
+};
+
 
   if (loading)
     return <div className="p-6 text-gray-700 dark:text-gray-300">Loading...</div>;
