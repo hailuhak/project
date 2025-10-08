@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader } from "../../../components/ui/Card";
 import { Button } from "../../../components/ui/Button";
 import { Users, BookOpen, TrendingUp, Activity } from "lucide-react";
 import { db } from "../../../lib/firebase";
-import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, Timestamp } from "firebase/firestore";
 import { Course, ActivityLog } from "../../../types";
 
 export const DashboardOverview: React.FC = () => {
@@ -52,10 +52,22 @@ export const DashboardOverview: React.FC = () => {
     // Activity logs listener
     const logsQuery = query(collection(db, "activityLogs"), orderBy("timestamp", "desc"));
     const unsubscribeLogs = onSnapshot(logsQuery, (snapshot) => {
-      const activityData = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...(doc.data() as Omit<ActivityLog, "id">),
-      })) as ActivityLog[];
+      const activityData = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          userName: data.userName || 'Unknown',
+          userId: data.userId || '',
+          userRole: data.userRole || 'trainee',
+          trainerId: data.trainerId,
+          action: data.action || '',
+          target: data.target || '',
+          details: data.details || '',
+          timestamp: data.timestamp instanceof Timestamp
+            ? data.timestamp.toDate()
+            : new Date(data.timestamp),
+        } as ActivityLog;
+      });
       setLogs(activityData.slice(0, 3)); // only take 3 most recent
       setLogsLoading(false);
     });
