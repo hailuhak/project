@@ -54,20 +54,22 @@ export const DashboardOverview: React.FC = () => {
     const unsubscribeLogs = onSnapshot(logsQuery, (snapshot) => {
       const activityData = snapshot.docs.map((doc) => {
         const data = doc.data();
+        console.log('Raw activity log data:', data);
         return {
           id: doc.id,
-          userName: data.userName || 'Unknown',
+          userName: data.userName || data.user || 'Unknown User',
           userId: data.userId || '',
           userRole: data.userRole || 'trainee',
           trainerId: data.trainerId,
           action: data.action || '',
           target: data.target || '',
-          details: data.details || '',
+          details: data.details || data.description || '',
           timestamp: data.timestamp instanceof Timestamp
             ? data.timestamp.toDate()
             : new Date(data.timestamp),
         } as ActivityLog;
       });
+      console.log('Processed activity data:', activityData);
       setLogs(activityData.slice(0, 3));
       setLogsLoading(false);
     });

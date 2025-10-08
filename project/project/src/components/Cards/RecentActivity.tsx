@@ -152,10 +152,10 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-900 dark:text-white">
-                    <span className="font-medium">{activity.userName}</span> {activity.action} {activity.target}
+                    <span className="font-medium">{String(activity.userName)}</span> {String(activity.action)} {String(activity.target)}
                   </p>
                   {activity.details && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{activity.details}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{String(activity.details)}</p>
                   )}
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                     {formatTime(activity.timestamp)}
