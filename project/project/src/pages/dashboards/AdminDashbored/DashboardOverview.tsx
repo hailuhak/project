@@ -68,7 +68,7 @@ export const DashboardOverview: React.FC = () => {
             : new Date(data.timestamp),
         } as ActivityLog;
       });
-      setLogs(activityData.slice(0, 3)); // only take 3 most recent
+      setLogs(activityData.slice(0, 3));
       setLogsLoading(false);
     });
 
