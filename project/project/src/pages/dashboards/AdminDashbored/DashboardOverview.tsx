@@ -51,41 +51,32 @@ export const DashboardOverview: React.FC = () => {
 
     // Activity logs listener
     const logsQuery = query(collection(db, "activityLogs"), orderBy("timestamp", "desc"));
-    const unsubscribeLogs = onSnapshot(logsQuery, (snapshot) => {
-      const activityData = snapshot.docs.map((doc) => {
-        const data = doc.data();
-<<<<<<< HEAD
-        return {
-          id: doc.id,
-          userName: data.userName || 'Unknown',
-=======
-        console.log('Raw activity log data:', data);
-        return {
-          id: doc.id,
-          userName: data.userName || data.user || 'Unknown User',
->>>>>>> cd3fb94ace7a61d357a2df4a42da2b2a9d9074bf
-          userId: data.userId || '',
-          userRole: data.userRole || 'trainee',
-          trainerId: data.trainerId,
-          action: data.action || '',
-          target: data.target || '',
-<<<<<<< HEAD
-          details: data.details || '',
-=======
-          details: data.details || data.description || '',
->>>>>>> cd3fb94ace7a61d357a2df4a42da2b2a9d9074bf
-          timestamp: data.timestamp instanceof Timestamp
-            ? data.timestamp.toDate()
-            : new Date(data.timestamp),
-        } as ActivityLog;
-      });
-<<<<<<< HEAD
-=======
-      console.log('Processed activity data:', activityData);
->>>>>>> cd3fb94ace7a61d357a2df4a42da2b2a9d9074bf
-      setLogs(activityData.slice(0, 3));
-      setLogsLoading(false);
-    });
+  const unsubscribeLogs = onSnapshot(logsQuery, (snapshot) => {
+  const activityData = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    console.log('Raw activity log data:', data); // optional debug log
+
+    return {
+      id: doc.id,
+      userName: data.userName || data.user || 'Unknown User',
+      userId: data.userId || '',
+      userRole: data.userRole || 'trainee',
+      trainerId: data.trainerId || '',
+      action: data.action || '',
+      target: data.target || '',
+      details: data.details || data.description || '',
+      timestamp: data.timestamp instanceof Timestamp
+        ? data.timestamp.toDate()
+        : new Date(data.timestamp),
+    } as ActivityLog;
+  });
+
+  console.log('Processed activity data:', activityData); // optional debug log
+
+  setLogs(activityData.slice(0, 3));
+  setLogsLoading(false);
+});
+
 
     return () => {
       unsubscribeUsers();
