@@ -11,6 +11,7 @@ import {
   doc,
   getDoc,
   Timestamp,
+  serverTimestamp,
 } from "firebase/firestore";
 import { useAuth } from "../../../contexts/AuthContext";
 import { Card, CardHeader, CardContent } from "../../../components/ui/Card";
@@ -36,7 +37,7 @@ export const TrainerGrades: React.FC = () => {
   const [grades, setGrades] = useState<{ [key: string]: number }>({});
   const [userNames, setUserNames] = useState<{ [key: string]: string }>({});
 
-  // Fetch enrollments grouped by trainee
+  // ✅ Fetch enrollments grouped by trainee
   useEffect(() => {
     if (!currentUser) return;
 
@@ -81,15 +82,39 @@ export const TrainerGrades: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser]);
 
-  // Handle input changes
+  // ✅ Handle input change
   const handleInputChange = (userId: string, courseId: string, value: number) => {
     const key = `${userId}_${courseId}`;
     setGrades({ ...grades, [key]: value });
   };
 
-  // Save all grades for a trainee
+  // ✅ Function to notify admin when grades change
+  const notifyAdminOnGradeChange = async (
+    trainerName: string,
+    traineeName: string,
+    courseTitle: string,
+    gradeValue: number
+  ) => {
+    try {
+      await addDoc(collection(db, "Notifications"), {
+        type: "grade_update",
+        message: `${trainerName} submitted ${gradeValue}% for ${traineeName} in ${courseTitle}`,
+        createdAt: serverTimestamp(),
+        isRead: false,
+      });
+    } catch (error) {
+      console.error("Error sending notification:", error);
+    }
+  };
+
+  // ✅ Save grades
   const handleSave = async (trainee: Enrollment) => {
     if (!currentUser) return;
+
+    const trainerDoc = await getDoc(doc(db, "users", currentUser.uid));
+    const trainerName = trainerDoc.exists()
+      ? (trainerDoc.data() as User).displayName || "Trainer"
+      : "Trainer";
 
     for (const course of trainee.courses) {
       const key = `${trainee.userId}_${course.courseId}`;
@@ -118,11 +143,20 @@ export const TrainerGrades: React.FC = () => {
           createdAt: Timestamp.now(),
         });
       }
+
+      // ✅ Send notification to admin
+      await notifyAdminOnGradeChange(
+        trainerName,
+        userNames[trainee.userId] || "Unknown",
+        course.title,
+        gradeValue
+      );
     }
 
     alert(`✅ Grades saved for ${userNames[trainee.userId] || "Unknown"}`);
   };
 
+  // ✅ UI
   return (
     <div className="p-6">
       <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-gray-100">

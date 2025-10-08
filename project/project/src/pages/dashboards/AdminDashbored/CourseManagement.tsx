@@ -2,8 +2,8 @@ import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "../../../components/ui/Card";
 import { Button } from "../../../components/ui/Button";
 import { Input } from "../../../components/ui/Input";
-import { Plus, Edit2, Trash2 } from "lucide-react";
-import { Course, ActivityLog } from "../../../types";
+import { Plus, Edit2, Trash2, X } from "lucide-react";
+import { Course, ActivityLog, Session } from "../../../types";
 import { useFirestoreQuery } from "../../../hooks/useFirestoreQuery";
 import { db } from "../../../lib/firebase";
 import DatePicker from "react-datepicker";
@@ -20,6 +20,7 @@ import {
   query,
   where,
   getDocs,
+  onSnapshot,
 } from "firebase/firestore";
 
 // Modal Component
@@ -28,11 +29,12 @@ interface ModalProps {
   onClose: () => void;
   children: React.ReactNode;
 }
+
 const Modal: React.FC<ModalProps> = ({ isOpen, onClose, children }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg p-2 relative">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg p-4 relative">
         <button
           onClick={onClose}
           className="absolute top-3 right-3 text-gray-500 hover:text-gray-700 dark:hover:text-white font-bold text-xl"
@@ -52,30 +54,49 @@ export const CourseManagement: React.FC = () => {
   );
 
   const [courses, setCourses] = useState<Course[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [showForm, setShowForm] = useState(false);
-  const [editingCourse, setEditingCourse] = useState<
-    Omit<Course, "id" | "createdAt" | "updatedAt"> & { id?: string } | null
-  >(null);
-
-  const defaultCourse = {
+  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+  const [newCourse, setNewCourse] = useState<Omit<Course, "id" | "createdAt" | "updatedAt">>({
     title: "",
     instructorName: "",
+    instructorId: "",
     category: "",
     duration: 0,
     hours: 0,
-    level: "beginner" as const,
+    level: "beginner",
     startDate: new Date(),
     endDate: new Date(),
-    materials: [] as string[],
-    status: "draft" as const,
-    instructorId: "",
-  };
+    materials: [],
+    status: "draft",
+    students: [],
+  });
+  const [newMaterial, setNewMaterial] = useState("");
 
-  const [newCourse, setNewCourse] = useState(defaultCourse);
+  // Load sessions in real-time
+  useEffect(() => {
+    const q = query(collection(db, "sessions"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const loadedSessions: Session[] = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: data.title,
+          regStart: data.regStart,
+          regEnd: data.regEnd,
+          trainStart: data.trainStart,
+          trainEnd: data.trainEnd,
+          createdAt: data.createdAt?.toDate() || new Date(),
+        };
+      });
+      setSessions(loadedSessions);
+    });
+    return () => unsubscribe();
+  }, []);
 
-  // Format Firestore timestamps
+  // Format courses
   useEffect(() => {
     if (coursesFromDB) {
       const formatted = coursesFromDB.map((course) => {
@@ -83,19 +104,13 @@ export const CourseManagement: React.FC = () => {
           ? (course.createdAt as any).toDate()
           : course.createdAt instanceof Date
           ? course.createdAt
-          : undefined;
-
+          : new Date();
         const updatedAt = (course.updatedAt as any)?.toDate
           ? (course.updatedAt as any).toDate()
           : course.updatedAt instanceof Date
           ? course.updatedAt
-          : undefined;
-
-        return {
-          ...course,
-          createdAt,
-          updatedAt,
-        };
+          : new Date();
+        return { ...course, createdAt, updatedAt };
       });
       setCourses(formatted);
     }
@@ -110,27 +125,30 @@ export const CourseManagement: React.FC = () => {
     return matchesSearch && matchesFilter;
   });
 
-  // Validate Dates
-  const validateDates = (startDate: Date, endDate: Date): boolean => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (startDate < today) {
-      alert("Start date must be today or later!");
+  // Validate course dates based on session
+  const validateDatesWithSessions = (startDate: Date, endDate: Date) => {
+    if (sessions.length === 0) return true;
+    const session = sessions[0]; // assume general session
+    const trainStart = new Date(session.trainStart);
+    const trainEnd = new Date(session.trainEnd);
+
+    if (startDate < trainStart) {
+      alert(`Course start date cannot be before session start: ${trainStart.toDateString()}`);
+      return false;
+    }
+    if (endDate > trainEnd) {
+      alert(`Course end date cannot be after session end: ${trainEnd.toDateString()}`);
       return false;
     }
     if (endDate < startDate) {
-      alert("End date must be after the start date!");
+      alert("Course end date cannot be before start date.");
       return false;
     }
     return true;
   };
 
   // Compute course status
-  const getCourseStatus = (
-    trainerExists: boolean,
-    startDate: Date,
-    endDate: Date
-  ): "draft" | "active" | "completed" => {
+  const computeStatus = (trainerExists: boolean, startDate: Date, endDate: Date) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (!trainerExists) return "draft";
@@ -139,7 +157,7 @@ export const CourseManagement: React.FC = () => {
     return "active";
   };
 
-  // Add activity log
+  // Log activity
   const logActivity = async (userName: string, action: string, target: string, details?: string) => {
     try {
       await addDoc(collection(db, "activityLogs"), {
@@ -154,53 +172,43 @@ export const CourseManagement: React.FC = () => {
     }
   };
 
+  // Helper to get instructor UID by name
+  const getInstructorUid = async (instructorName: string) => {
+    const usersRef = collection(db, "users");
+    const q = query(usersRef, where("displayName", "==", instructorName));
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) return snapshot.docs[0].id;
+    return "";
+  };
+
   // Add Course
   const handleAddCourse = async () => {
     if (!newCourse.title || !newCourse.instructorName) {
       alert("Please fill all required fields.");
       return;
     }
-    if (!validateDates(newCourse.startDate, newCourse.endDate)) return;
+    if (!validateDatesWithSessions(newCourse.startDate, newCourse.endDate)) return;
 
     try {
-      const usersRef = collection(db, "users");
-      const q = query(usersRef, where("role", "==", "trainer"));
-      const querySnapshot = await getDocs(q);
-
-      const matchingUser = querySnapshot.docs.find(
-        (doc) =>
-          doc.data().displayName.toLowerCase() === newCourse.instructorName.toLowerCase()
-      );
-      const trainerExists = !!matchingUser;
-      const instructorUid = trainerExists ? matchingUser!.id : "";
-
-      const status = getCourseStatus(trainerExists, newCourse.startDate, newCourse.endDate);
+      const instructorId = await getInstructorUid(newCourse.instructorName);
+      const status = computeStatus(!!instructorId, newCourse.startDate, newCourse.endDate);
 
       const courseRef = await addDoc(collection(db, "courses"), {
         ...newCourse,
-        instructorId: instructorUid,
+        instructorId,
         status,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
       setCourses((prev) => [
-        {
-          ...newCourse,
-          id: courseRef.id,
-          instructorId: instructorUid,
-          status,
-          hours: 0,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
+        { ...newCourse, id: courseRef.id, instructorId, status, createdAt: new Date(), updatedAt: new Date() },
         ...prev,
       ]);
 
-      // Log activity
       await logActivity("Admin", "added", `course: ${newCourse.title}`);
-
-      setNewCourse(defaultCourse);
+      setNewCourse({ ...newCourse, ...defaultCourse });
+      setNewMaterial("");
       setShowForm(false);
       alert("Course added successfully!");
     } catch (err: any) {
@@ -209,29 +217,18 @@ export const CourseManagement: React.FC = () => {
     }
   };
 
-  // Save Edit
+  // Edit Course
   const handleSaveEdit = async () => {
     if (!editingCourse || !editingCourse.instructorName) return;
-    if (!validateDates(editingCourse.startDate, editingCourse.endDate)) return;
+    if (!validateDatesWithSessions(editingCourse.startDate, editingCourse.endDate)) return;
 
     try {
-      const usersRef = collection(db, "users");
-      const q = query(usersRef, where("role", "==", "trainer"));
-      const querySnapshot = await getDocs(q);
-
-      const matchingUser = querySnapshot.docs.find(
-        (doc) =>
-          doc.data().displayName.toLowerCase() === editingCourse.instructorName.toLowerCase()
-      );
-
-      const trainerExists = !!matchingUser;
-      const instructorUid = trainerExists ? matchingUser!.id : "";
-
-      const status = getCourseStatus(trainerExists, editingCourse.startDate, editingCourse.endDate);
+      const instructorId = await getInstructorUid(editingCourse.instructorName);
+      const status = computeStatus(!!instructorId, editingCourse.startDate, editingCourse.endDate);
 
       await updateDoc(doc(db, "courses", editingCourse.id!), {
         ...editingCourse,
-        instructorId: instructorUid,
+        instructorId,
         status,
         updatedAt: serverTimestamp(),
       });
@@ -239,14 +236,12 @@ export const CourseManagement: React.FC = () => {
       setCourses((prev) =>
         prev.map((c) =>
           c.id === editingCourse.id
-            ? { ...c, ...editingCourse, instructorId: instructorUid, status, updatedAt: new Date() }
+            ? { ...c, ...editingCourse, instructorId, status, updatedAt: new Date() }
             : c
         )
       );
 
-      // Log activity
       await logActivity("Admin", "edited", `course: ${editingCourse.title}`);
-
       setEditingCourse(null);
       setShowForm(false);
       alert("Course updated successfully!");
@@ -262,10 +257,7 @@ export const CourseManagement: React.FC = () => {
     try {
       await deleteDoc(doc(db, "courses", course.id!));
       setCourses((prev) => prev.filter((c) => c.id !== course.id));
-
-      // Log activity
       await logActivity("Admin", "deleted", `course: ${course.title}`);
-
       alert("Course deleted successfully!");
     } catch (err: any) {
       console.error(err);
@@ -273,9 +265,31 @@ export const CourseManagement: React.FC = () => {
     }
   };
 
+  // Materials
+  const handleAddMaterial = () => {
+    if (!newMaterial.trim()) return;
+    if (editingCourse) {
+      setEditingCourse({ ...editingCourse, materials: [...editingCourse.materials, newMaterial] });
+    } else {
+      setNewCourse({ ...newCourse, materials: [...newCourse.materials, newMaterial] });
+    }
+    setNewMaterial("");
+  };
+  const handleRemoveMaterial = (index: number) => {
+    if (editingCourse) {
+      setEditingCourse({ ...editingCourse, materials: editingCourse.materials.filter((_, i) => i !== index) });
+    } else {
+      setNewCourse({ ...newCourse, materials: newCourse.materials.filter((_, i) => i !== index) });
+    }
+  };
+
+  // DatePicker CSS classes
+  const datePickerClass =
+    "border rounded p-2 w-full dark:bg-gray-700 dark:text-white dark:border-gray-600";
+
   return (
     <div className="space-y-6">
-      {/* Header */}
+           {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Course Management</h1>
@@ -285,7 +299,8 @@ export const CourseManagement: React.FC = () => {
           onClick={() => {
             setShowForm(true);
             setEditingCourse(null);
-            setNewCourse(defaultCourse);
+            setNewCourse({ ...newCourse, startDate: new Date(), endDate: new Date(), materials: [] });
+            setNewMaterial("");
           }}
         >
           <Plus className="w-4 h-4 mr-2" /> Create Course
@@ -321,7 +336,8 @@ export const CourseManagement: React.FC = () => {
         isOpen={showForm}
         onClose={() => {
           setEditingCourse(null);
-          setNewCourse(defaultCourse);
+          setNewCourse({ ...newCourse, startDate: new Date(), endDate: new Date(), materials: [] });
+          setNewMaterial("");
           setShowForm(false);
         }}
       >
@@ -329,8 +345,8 @@ export const CourseManagement: React.FC = () => {
           <h2 className="text-xl font-semibold mb-6 text-gray-900 dark:text-gray-100">
             {editingCourse ? "Edit Course" : "Add New Course"}
           </h2>
+
           <div className="flex flex-col gap-4 max-h-[70vh] overflow-y-auto">
-            {/* Title */}
             <Input
               placeholder="Course Title"
               value={editingCourse ? editingCourse.title : newCourse.title}
@@ -340,7 +356,6 @@ export const CourseManagement: React.FC = () => {
                   : setNewCourse({ ...newCourse, title: e.target.value })
               }
             />
-            {/* Instructor */}
             <Input
               placeholder="Instructor Name"
               value={editingCourse ? editingCourse.instructorName : newCourse.instructorName}
@@ -350,7 +365,6 @@ export const CourseManagement: React.FC = () => {
                   : setNewCourse({ ...newCourse, instructorName: e.target.value })
               }
             />
-            {/* Category */}
             <Input
               placeholder="Category"
               value={editingCourse ? editingCourse.category : newCourse.category}
@@ -360,7 +374,6 @@ export const CourseManagement: React.FC = () => {
                   : setNewCourse({ ...newCourse, category: e.target.value })
               }
             />
-            {/* Duration */}
             <Input
               type="number"
               placeholder="Duration (hours)"
@@ -371,75 +384,62 @@ export const CourseManagement: React.FC = () => {
                   : setNewCourse({ ...newCourse, duration: Number(e.target.value) })
               }
             />
-            {/* Level */}
-            <select
-              value={editingCourse ? editingCourse.level : newCourse.level}
-              onChange={(e) =>
-                editingCourse
-                  ? setEditingCourse({ ...editingCourse, level: e.target.value as any })
-                  : setNewCourse({ ...newCourse, level: e.target.value as any })
-              }
-              className="px-3 py-2 border border-gray-300 rounded-lg dark:bg-gray-700 dark:text-white"
-            >
-              <option value="beginner">Beginner</option>
-              <option value="intermediate">Intermediate</option>
-              <option value="advanced">Advanced</option>
-            </select>
 
-            {/* Dates */}
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1 flex flex-col">
-                <label className="text-gray-500 mb-1">Start Date</label>
+            {/* Date Pickers */}
+            <div className="flex gap-2">
+              <div className="flex flex-col w-full">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start Date</label>
                 <DatePicker
                   selected={editingCourse ? editingCourse.startDate : newCourse.startDate}
-                  onChange={(date: Date | null) => {
-                    if (!date) return;
-                    if (editingCourse) {
-                      const adjustedEnd =
-                        editingCourse.endDate && editingCourse.endDate < date ? date : editingCourse.endDate;
-                      setEditingCourse({ ...editingCourse, startDate: date, endDate: adjustedEnd });
-                    } else {
-                      const adjustedEnd = newCourse.endDate && newCourse.endDate < date ? date : newCourse.endDate;
-                      setNewCourse({ ...newCourse, startDate: date, endDate: adjustedEnd });
-                    }
-                  }}
-                  minDate={new Date()}
-                  placeholderText="Select Start Date"
-                  className="px-3 py-2 border border-gray-300 rounded-lg dark:bg-gray-700 dark:text-white"
-                  dateFormat="yyyy-MM-dd"
+                  onChange={(date: Date) =>
+                    editingCourse
+                      ? setEditingCourse({ ...editingCourse, startDate: date })
+                      : setNewCourse({ ...newCourse, startDate: date })
+                  }
+                  className={datePickerClass}
                 />
               </div>
-              <div className="flex-1 flex flex-col">
-                <label className="text-gray-500 mb-1">End Date</label>
+              <div className="flex flex-col w-full">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Date</label>
                 <DatePicker
                   selected={editingCourse ? editingCourse.endDate : newCourse.endDate}
-                  onChange={(date: Date | null) => {
-                    if (!date) return;
-                    if (editingCourse) setEditingCourse({ ...editingCourse, endDate: date });
-                    else setNewCourse({ ...newCourse, endDate: date });
-                  }}
-                  minDate={editingCourse ? editingCourse.startDate : newCourse.startDate}
-                  placeholderText="Select End Date"
-                  className="px-3 py-2 border border-gray-300 rounded-lg dark:bg-gray-700 dark:text-white"
-                  dateFormat="yyyy-MM-dd"
+                  onChange={(date: Date) =>
+                    editingCourse
+                      ? setEditingCourse({ ...editingCourse, endDate: date })
+                      : setNewCourse({ ...newCourse, endDate: date })
+                  }
+                  className={datePickerClass}
                 />
               </div>
             </div>
 
-            {/* Status */}
-            <Input
-              value={
-                editingCourse
-                  ? editingCourse.status
-                  : getCourseStatus(true, newCourse.startDate, newCourse.endDate)
-              }
-              readOnly
-              placeholder="Status"
-              className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 dark:bg-gray-800"
-            />
+            {/* Materials */}
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Add Material"
+                  value={newMaterial}
+                  onChange={(e) => setNewMaterial(e.target.value)}
+                />
+                <Button onClick={handleAddMaterial}>Add</Button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(editingCourse ? editingCourse.materials : newCourse.materials).map((mat, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-1 bg-gray-200 dark:bg-gray-700 rounded px-2 py-1"
+                  >
+                    {mat}
+                    <X
+                      className="cursor-pointer"
+                      onClick={() => handleRemoveMaterial(idx)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {/* Buttons */}
           <div className="flex justify-end gap-3 mt-6">
             <Button onClick={editingCourse ? handleSaveEdit : handleAddCourse}>
               {editingCourse ? "Save Changes" : "Add Course"}
@@ -448,7 +448,8 @@ export const CourseManagement: React.FC = () => {
               variant="outline"
               onClick={() => {
                 setEditingCourse(null);
-                setNewCourse(defaultCourse);
+                setNewCourse({ ...newCourse, startDate: new Date(), endDate: new Date(), materials: [] });
+                setNewMaterial("");
                 setShowForm(false);
               }}
             >
@@ -495,3 +496,4 @@ export const CourseManagement: React.FC = () => {
     </div>
   );
 };
+

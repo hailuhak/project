@@ -10,16 +10,53 @@ import { db } from '../../lib/firebase';
 export const Navbar: React.FC = () => {
   const { currentUser, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const [notifications, setNotifications] = React.useState<number>(0);
+
+  const [pendingUsers, setPendingUsers] = React.useState<number>(0);
+  const [trainerNotifications, setTrainerNotifications] = React.useState<Set<string>>(new Set());
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
-  // Listen to pendingUsers collection
+  // 🔴 Pending users
   React.useEffect(() => {
     const q = query(collection(db, 'pendingUsers'), orderBy('timestamp', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setNotifications(snapshot.size);
+      setPendingUsers(snapshot.size);
     });
     return () => unsubscribe();
+  }, []);
+
+  // 🟢 Grades notifications per trainer
+  React.useEffect(() => {
+    let gradesData: any[] = [];
+    let finalGradesData: any[] = [];
+
+    const updateTrainerNotifications = (grades: any[], finalGrades: any[]) => {
+      const unsavedGrades = grades.filter(
+        g => !finalGrades.some(f => f.id === g.id)
+      );
+      const trainers = new Set(unsavedGrades.map(g => g.trainerId));
+      setTrainerNotifications(trainers);
+    };
+
+    const unsubscribeGrades = onSnapshot(
+      query(collection(db, 'grades'), orderBy('updatedAt', 'desc')),
+      (snapshot) => {
+        gradesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        updateTrainerNotifications(gradesData, finalGradesData);
+      }
+    );
+
+    const unsubscribeFinal = onSnapshot(
+      collection(db, 'finalGrades'),
+      (snapshot) => {
+        finalGradesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        updateTrainerNotifications(gradesData, finalGradesData);
+      }
+    );
+
+    return () => {
+      unsubscribeGrades();
+      unsubscribeFinal();
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -29,6 +66,8 @@ export const Navbar: React.FC = () => {
       console.error('Failed to logout:', error);
     }
   };
+
+  const gradeCount = trainerNotifications.size; // count of trainers with unsaved grades
 
   return (
     <>
@@ -41,41 +80,43 @@ export const Navbar: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
 
-            {/* Left: Logo */}
+            {/* Logo */}
             <div className="flex items-center">
               <motion.div className="flex-shrink-0" whileHover={{ scale: 1.05 }}>
-                <h1 className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                  ATMS
-                </h1>
+                <h1 className="text-2xl font-bold text-blue-600 dark:text-blue-400">ATMS</h1>
               </motion.div>
             </div>
 
-            {/* Right: Desktop Menu */}
+            {/* Desktop Menu */}
             <div className="hidden lg:flex items-center space-x-4">
+              <Button variant="ghost" size="sm"><Settings className="w-4 h-4" /></Button>
 
-              {/* Settings */}
-              <Button variant="ghost" size="sm">
-                <Settings className="w-4 h-4" />
-              </Button>
-
-              {/* Notifications */}
+              {/* Bell Icon with two badges */}
               <Button variant="ghost" size="sm">
                 <div className="relative">
-                  <Bell className="w-4 h-4" />
-                  {notifications > 0 && (
+                  <Bell className="w-5 h-5" />
+
+                  {/* Red badge: pending users */}
+                  {pendingUsers > 0 && (
                     <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">
-                      {notifications}
+                      {pendingUsers}
+                    </span>
+                  )}
+
+                  {/* Green badge: new grades per trainer */}
+                  {gradeCount > 0 && (
+                    <span className="absolute -bottom-1 -right-1 bg-green-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">
+                      {gradeCount}
                     </span>
                   )}
                 </div>
               </Button>
 
-              {/* Theme Toggle */}
               <Button variant="ghost" size="sm" onClick={toggleTheme}>
                 {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
               </Button>
 
-              {/* User Info (always visible) */}
+              {/* User Info */}
               <div className="flex items-center space-x-3">
                 <div className="text-right">
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -90,7 +131,6 @@ export const Navbar: React.FC = () => {
                 </div>
               </div>
 
-              {/* Logout */}
               <Button variant="ghost" size="sm" onClick={handleLogout}>
                 <LogOut className="w-4 h-4" />
               </Button>
@@ -101,8 +141,6 @@ export const Navbar: React.FC = () => {
               <Button variant="ghost" size="sm" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
                 <Menu className="w-5 h-5" />
               </Button>
-
-              {/* User Info (always visible on mobile) */}
               <div className="flex items-center space-x-2">
                 <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
                   <User className="w-4 h-4 text-white" />
@@ -115,28 +153,28 @@ export const Navbar: React.FC = () => {
           </div>
         </div>
 
-        {/* Mobile Dropdown Menu */}
+        {/* Mobile Menu */}
         {mobileMenuOpen && (
           <div className="lg:hidden bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-md">
             <div className="flex flex-col p-4 space-y-2">
-              {/* Settings */}
-              <Button variant="ghost" size="sm">
-                <Settings className="w-4 h-4 mr-2" /> Settings
-              </Button>
+              <Button variant="ghost" size="sm"><Settings className="w-4 h-4 mr-2" /> Settings</Button>
 
-              {/* Notifications */}
               <Button variant="ghost" size="sm">
                 <div className="relative flex items-center">
                   <Bell className="w-4 h-4 mr-2" /> Notifications
-                  {notifications > 0 && (
+                  {pendingUsers > 0 && (
                     <span className="absolute -top-1 -right-2 bg-red-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">
-                      {notifications}
+                      {pendingUsers}
+                    </span>
+                  )}
+                  {gradeCount > 0 && (
+                    <span className="absolute -bottom-1 -right-2 bg-green-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">
+                      {gradeCount}
                     </span>
                   )}
                 </div>
               </Button>
 
-              {/* Theme Toggle */}
               <Button variant="ghost" size="sm" onClick={toggleTheme}>
                 {theme === 'light' ? <Moon className="w-4 h-4 mr-2" /> : <Sun className="w-4 h-4 mr-2" />} Theme
               </Button>
@@ -145,7 +183,7 @@ export const Navbar: React.FC = () => {
         )}
       </motion.nav>
 
-      {/* Spacer to avoid overlapping content */}
+      {/* Spacer */}
       <div className="h-16" />
     </>
   );

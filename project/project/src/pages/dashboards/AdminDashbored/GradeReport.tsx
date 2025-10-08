@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "../../../components/ui/Card";
-import { collection, doc, setDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  setDoc,
+  serverTimestamp,
+  onSnapshot,
+  query,
+  where,
+  getDocs,
+  addDoc,
+} from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
 // Convert numeric grade to letter grade
@@ -46,7 +56,7 @@ export default function GradeReport() {
   const [grades, setGrades] = useState<GradeRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Real-time listener for grades
+  // ✅ Real-time listener for "grades" collection
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "grades"), (snapshot) => {
       const data: any[] = snapshot.docs.map((doc) => doc.data());
@@ -85,24 +95,83 @@ export default function GradeReport() {
       setLoading(false);
     });
 
-    return () => unsubscribe(); // Cleanup listener on unmount
+    return () => unsubscribe(); // Cleanup listener
   }, []);
 
-  // Save all grades to "finalGrade" collection
+  // ✅ Log activity to Firestore
+  const logActivity = async (
+    userName: string,
+    action: string,
+    target: string,
+    details?: string
+  ) => {
+    try {
+      await addDoc(collection(db, "activityLogs"), {
+        userName,
+        action,
+        target,
+        details: details || "",
+        timestamp: serverTimestamp(),
+      });
+    } catch (err: any) {
+      console.error("Failed to log activity:", err.message);
+    }
+  };
+
+  // ✅ Save or update trainee records in "finalGrade"
   const handleSaveAll = async () => {
     try {
       for (const t of grades) {
-        await setDoc(doc(collection(db, "finalGrade")), {
-          traineeId: t.traineeId,
-          traineeName: t.traineeName,
-          courses: t.courses,
-          total: t.total,
-          average: t.average,
-          cgpa: t.cgpa,
-          createdAt: serverTimestamp(),
-        });
+        // Check if a document already exists for this trainee
+        const q = query(
+          collection(db, "finalGrade"),
+          where("traineeId", "==", t.traineeId)
+        );
+        const existingDocs = await getDocs(q);
+
+        if (!existingDocs.empty) {
+          // 🔁 Update existing document
+          const existingDoc = existingDocs.docs[0];
+          await setDoc(
+            doc(db, "finalGrade", existingDoc.id),
+            {
+              traineeId: t.traineeId,
+              traineeName: t.traineeName,
+              courses: t.courses,
+              total: t.total,
+              average: t.average,
+              cgpa: t.cgpa,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+          await logActivity(
+            "Admin",
+            "updated",
+            `finalGrade for ${t.traineeName}`,
+            `Updated all courses and grades`
+          );
+        } else {
+          // 🆕 Create a new document
+          await setDoc(doc(collection(db, "finalGrade")), {
+            traineeId: t.traineeId,
+            traineeName: t.traineeName,
+            courses: t.courses,
+            total: t.total,
+            average: t.average,
+            cgpa: t.cgpa,
+            createdAt: serverTimestamp(),
+          });
+          await logActivity(
+            "Admin",
+            "added",
+            `finalGrade for ${t.traineeName}`,
+            `Created record with all courses and grades`
+          );
+        }
       }
-      alert("✅ All grades saved successfully to finalGrade collection!");
+
+      alert("✅ Grades saved/updated successfully with activity logs!");
     } catch (error) {
       console.error("Error saving grades:", error);
       alert("❌ Failed to save grades. Check console for details.");
@@ -122,7 +191,7 @@ export default function GradeReport() {
           onClick={handleSaveAll}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
         >
-          Save All
+          Save / Update All
         </button>
       </div>
 
