@@ -54,20 +54,35 @@ export const DashboardOverview: React.FC = () => {
     const unsubscribeLogs = onSnapshot(logsQuery, (snapshot) => {
       const activityData = snapshot.docs.map((doc) => {
         const data = doc.data();
+<<<<<<< HEAD
         return {
           id: doc.id,
           userName: data.userName || 'Unknown',
+=======
+        console.log('Raw activity log data:', data);
+        return {
+          id: doc.id,
+          userName: data.userName || data.user || 'Unknown User',
+>>>>>>> cd3fb94ace7a61d357a2df4a42da2b2a9d9074bf
           userId: data.userId || '',
           userRole: data.userRole || 'trainee',
           trainerId: data.trainerId,
           action: data.action || '',
           target: data.target || '',
+<<<<<<< HEAD
           details: data.details || '',
+=======
+          details: data.details || data.description || '',
+>>>>>>> cd3fb94ace7a61d357a2df4a42da2b2a9d9074bf
           timestamp: data.timestamp instanceof Timestamp
             ? data.timestamp.toDate()
             : new Date(data.timestamp),
         } as ActivityLog;
       });
+<<<<<<< HEAD
+=======
+      console.log('Processed activity data:', activityData);
+>>>>>>> cd3fb94ace7a61d357a2df4a42da2b2a9d9074bf
       setLogs(activityData.slice(0, 3));
       setLogsLoading(false);
     });
