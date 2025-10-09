@@ -134,7 +134,7 @@ export const DashboardOverview: React.FC = () => {
                         <div className="bg-gray-200 dark:bg-gray-700 rounded-lg h-48"></div>
                       </div>
                     ))
-                  : (showAllCourses ? courses : courses.slice(0, 4)).map((course) => (
+                  : (showAllCourses ? courses : courses.slice(0, 2)).map((course) => (
                       <CourseCard key={course.id} course={course} showActions={false} />
                     ))}
               </div>
