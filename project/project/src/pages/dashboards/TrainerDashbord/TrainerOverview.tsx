@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { StatsCard } from "../../../components/Cards/StatsCard";
-import { RecentActivity } from "../../../components/Cards/RecentActivity";
+import { RecentActivity, ActivityLog } from "../../../components/Cards/RecentActivity";
 import { BookOpen, Calendar, Users, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader } from "../../../components/ui/Card";
 import { useAuth } from "../../../contexts/AuthContext";
 import { CourseCard } from "../../../components/courses/CourseCard";
 import { useCourses, EnrollmentCourse } from "../../../hooks/useCourses";
 import { Course } from "../../../types";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot, orderBy, limit } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
 export const TrainerOverview: React.FC = () => {
@@ -23,6 +23,8 @@ export const TrainerOverview: React.FC = () => {
   });
 
   const [uniqueStudents, setUniqueStudents] = useState<Set<string>>(new Set());
+  const [recentActivities, setRecentActivities] = useState<ActivityLog[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(true);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -76,6 +78,35 @@ export const TrainerOverview: React.FC = () => {
 
     return () => unsubscribe();
   }, [allCourses, currentUser]);
+
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    const q = query(
+      collection(db, "activityLogs"),
+      where("trainerId", "==", currentUser.uid),
+      orderBy("timestamp", "desc"),
+      limit(5)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const activities: ActivityLog[] = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          userName: data.userName || currentUser.displayName || "Trainer",
+          action: data.action || "",
+          target: data.target || "",
+          details: data.details || "",
+          timestamp: data.timestamp?.toDate() || new Date(),
+        };
+      });
+      setRecentActivities(activities);
+      setLoadingActivities(false);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
 
   return (
     <div className="space-y-6">
@@ -135,8 +166,9 @@ export const TrainerOverview: React.FC = () => {
           </Card>
         </div>
 
-        {/* Recent Activity */}
-        <RecentActivity userId={currentUser?.uid || ""} limitCount={4} />
+        <div>
+          <RecentActivity logs={recentActivities} loading={loadingActivities} limitCount={5} />
+        </div>
       </div>
     </div>
   );

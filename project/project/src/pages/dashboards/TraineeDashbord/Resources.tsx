@@ -7,6 +7,7 @@ import {
   Video as VideoIcon,
   File,
   X,
+  Play,
 } from "lucide-react";
 import { db } from "../../../lib/firebase";
 import {
@@ -15,7 +16,6 @@ import {
   where,
   onSnapshot,
   getDocs,
-  Unsubscribe,
 } from "firebase/firestore";
 import { useAuth } from "../../../contexts/AuthContext";
 
@@ -26,69 +26,87 @@ interface Resource {
   content: string;
   description?: string;
   courseId?: string;
+  courseName?: string;
+  trainerId?: string;
+  trainerName?: string;
 }
 
 export const Resources: React.FC = () => {
   const { currentUser } = useAuth();
   const [resources, setResources] = useState<Resource[]>([]);
   const [modalResource, setModalResource] = useState<Resource | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!currentUser?.uid) return;
 
-    const enrolmentsRef = collection(db, "enrolments");
-    const enrolmentQuery = query(enrolmentsRef, where("userId", "==", currentUser.uid));
-
-    let unsubscribe: Unsubscribe | undefined;
-
-    const fetchTrainerMaterials = async () => {
+    const fetchResources = async () => {
       try {
-        const enrolmentSnapshot = await getDocs(enrolmentQuery);
-        const trainerNames = Array.from(
-          new Set(
-            enrolmentSnapshot.docs.map((doc) => doc.data().instructorName)
-          )
-        );
+        const enrollmentRef = collection(db, "enrollments");
+        const enrollmentQuery = query(enrollmentRef, where("userId", "==", currentUser.uid));
+        const enrollmentSnapshot = await getDocs(enrollmentQuery);
 
-        if (trainerNames.length === 0) {
+        if (enrollmentSnapshot.empty) {
           setResources([]);
+          setLoading(false);
           return;
         }
 
-        // Firestore `in` query supports up to 10 items
-        const materialsRef = collection(db, "trainingMaterials");
-        const materialsQuery = query(
-          materialsRef,
-          where("trainerName", "in", trainerNames.slice(0, 10))
-        );
+        const enrollmentData = enrollmentSnapshot.docs[0].data();
+        const enrolledCourseIds = enrollmentData.courses?.map((c: any) => c.courseId) || [];
 
-        unsubscribe = onSnapshot(materialsQuery, (snapshot) => {
-          const fetchedResources: Resource[] = snapshot.docs.map((doc) => {
-            const data = doc.data() as any;
-            return {
-              id: doc.id,
-              name: data.name || "Untitled Resource",
-              type: data.type || "file",
-              content: data.content || data.url || "",
-              description: data.description || "",
-              courseId: data.courseId,
-            };
+        if (enrolledCourseIds.length === 0) {
+          setResources([]);
+          setLoading(false);
+          return;
+        }
+
+        const materialsRef = collection(db, "trainingMaterials");
+        const batchSize = 10;
+        const allMaterials: Resource[] = [];
+
+        for (let i = 0; i < enrolledCourseIds.length; i += batchSize) {
+          const batch = enrolledCourseIds.slice(i, i + batchSize);
+          const materialsQuery = query(
+            materialsRef,
+            where("courseId", "in", batch)
+          );
+
+          const unsubscribe = onSnapshot(materialsQuery, (snapshot) => {
+            const fetchedResources: Resource[] = snapshot.docs.map((doc) => {
+              const data = doc.data() as any;
+              return {
+                id: doc.id,
+                name: data.name || "Untitled Resource",
+                type: data.type || "file",
+                content: data.content || data.url || "",
+                description: data.description || "",
+                courseId: data.courseId,
+                courseName: data.courseName,
+                trainerId: data.trainerId,
+                trainerName: data.trainerName,
+              };
+            });
+
+            allMaterials.push(...fetchedResources);
+            const uniqueMaterials = Array.from(
+              new Map(allMaterials.map(item => [item.id, item])).values()
+            );
+            setResources(uniqueMaterials);
+            setLoading(false);
           });
-          setResources(fetchedResources);
-        });
+
+          return () => unsubscribe();
+        }
       } catch (error) {
         console.error("Error fetching materials:", error);
+        setLoading(false);
       }
     };
 
-    fetchTrainerMaterials();
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+    fetchResources();
   }, [currentUser]);
 
-  // Icon selector
   const getIcon = (type: string) => {
     const baseStyle = "w-8 h-8";
     if (type.includes("pdf"))
@@ -102,7 +120,6 @@ export const Resources: React.FC = () => {
     return <File className={`${baseStyle} text-blue-500`} />;
   };
 
-  // Handle resource click
   const handleOpen = (res: Resource) => {
     if (
       res.type.includes("pdf") ||
@@ -115,7 +132,6 @@ export const Resources: React.FC = () => {
     }
   };
 
-  // Handle download
   const handleDownload = (res: Resource, e: React.MouseEvent) => {
     e.stopPropagation();
     const link = document.createElement("a");
@@ -126,19 +142,39 @@ export const Resources: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            Learning Resources
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            Loading your course materials...
+          </p>
+        </div>
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="animate-pulse">
+              <div className="bg-gray-200 dark:bg-gray-700 rounded-lg h-32"></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-          Learning Resources
+          Learning Resources & E-Learning
         </h1>
         <p className="text-gray-600 dark:text-gray-400 mt-1">
-          Access course materials from your enrolled courses
+          Access course materials, videos, and documents from your enrolled courses
         </p>
       </div>
 
-      {/* Resource List */}
       {resources.length === 0 ? (
         <Card className="w-full">
           <CardContent>
@@ -159,14 +195,23 @@ export const Resources: React.FC = () => {
               className="w-full relative rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300 cursor-pointer"
             >
               <CardContent className="flex flex-col gap-3 p-4">
-                {/* Header */}
                 <div className="flex justify-between items-start">
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-3 flex-1">
                     {getIcon(res.type)}
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1 flex-1">
                       <span className="font-medium text-gray-900 dark:text-white">
                         {res.name}
                       </span>
+                      {res.courseName && (
+                        <span className="text-sm text-blue-600 dark:text-blue-400 font-medium">
+                          {res.courseName}
+                        </span>
+                      )}
+                      {res.trainerName && (
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          By: {res.trainerName}
+                        </span>
+                      )}
                       {res.description && (
                         <span className="text-sm text-gray-500 dark:text-gray-400">
                           {res.description}
@@ -175,19 +220,17 @@ export const Resources: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Download Button */}
                   <button
                     onClick={(e) => handleDownload(res, e)}
-                    className="flex items-center gap-2 bg-blue-100 hover:bg-blue-200 
-                               dark:bg-blue-700 dark:hover:bg-blue-600 
-                               text-blue-700 dark:text-blue-200 
+                    className="flex items-center gap-2 bg-blue-100 hover:bg-blue-200
+                               dark:bg-blue-700 dark:hover:bg-blue-600
+                               text-blue-700 dark:text-blue-200
                                px-3 py-1 rounded-md shadow-sm transition"
                   >
                     <Download className="w-5 h-5" />
                   </button>
                 </div>
 
-                {/* Image Preview */}
                 {res.type.includes("image") && (
                   <img
                     src={res.content}
@@ -196,16 +239,12 @@ export const Resources: React.FC = () => {
                   />
                 )}
 
-                {/* Video Preview */}
                 {res.type.includes("video") && (
                   <div
-                    className="w-full h-40 flex items-center justify-center bg-gray-100 dark:bg-gray-700 
-                               cursor-pointer rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    className="w-full h-40 flex items-center justify-center bg-gradient-to-r from-purple-100 to-blue-100 dark:from-purple-900 dark:to-blue-900
+                               cursor-pointer rounded-md hover:from-purple-200 hover:to-blue-200 dark:hover:from-purple-800 dark:hover:to-blue-800 transition-colors"
                   >
-                    <VideoIcon className="w-12 h-12 text-purple-500" />
-                    <span className="ml-2 text-purple-500 font-medium">
-                      Play Video
-                    </span>
+                    <Play className="w-16 h-16 text-purple-600 dark:text-purple-300" />
                   </div>
                 )}
               </CardContent>
@@ -214,25 +253,36 @@ export const Resources: React.FC = () => {
         </div>
       )}
 
-      {/* Modal */}
       {modalResource && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-3xl relative p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-4xl relative p-6 max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setModalResource(null)}
-              className="absolute top-4 right-4 text-gray-700 dark:text-gray-200"
+              className="absolute top-4 right-4 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full p-2"
             >
               <X className="w-6 h-6" />
             </button>
 
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              {modalResource.name}
-            </h2>
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                {modalResource.name}
+              </h2>
+              {modalResource.courseName && (
+                <p className="text-sm text-blue-600 dark:text-blue-400 font-medium">
+                  {modalResource.courseName}
+                </p>
+              )}
+              {modalResource.description && (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  {modalResource.description}
+                </p>
+              )}
+            </div>
 
             {modalResource.type.includes("pdf") && (
               <iframe
                 src={modalResource.content}
-                className="w-full h-96 rounded-md"
+                className="w-full h-[600px] rounded-md"
                 title={modalResource.name}
               />
             )}
@@ -241,7 +291,7 @@ export const Resources: React.FC = () => {
               <img
                 src={modalResource.content}
                 alt={modalResource.name}
-                className="w-full h-96 object-contain rounded-md"
+                className="w-full max-h-[600px] object-contain rounded-md"
               />
             )}
 
@@ -249,8 +299,11 @@ export const Resources: React.FC = () => {
               <video
                 src={modalResource.content}
                 controls
-                className="w-full h-96 rounded-md"
-              />
+                autoPlay
+                className="w-full max-h-[600px] rounded-md"
+              >
+                Your browser does not support the video tag.
+              </video>
             )}
           </div>
         </div>

@@ -20,7 +20,10 @@ import {
   Timestamp,
   deleteDoc,
   doc,
+  where,
 } from 'firebase/firestore';
+import { useAuth } from '../../../contexts/AuthContext';
+import { Course } from '../../../types';
 
 interface Material {
   id: string;
@@ -29,12 +32,17 @@ interface Material {
   type: string;
   uploadedAt: Date;
   description?: string;
-  content: string; // base64
+  content: string;
+  courseId?: string;
+  courseName?: string;
+  trainerName?: string;
+  trainerId?: string;
 }
 
 interface FileWithDescription {
   file: File;
   description: string;
+  courseId: string;
 }
 
 interface Toast {
@@ -44,6 +52,7 @@ interface Toast {
 }
 
 export const TrainingMaterials: React.FC = () => {
+  const { currentUser } = useAuth();
   const [materials, setMaterials] = useState<Material[]>([]);
   const [uploadQueue, setUploadQueue] = useState<FileWithDescription[]>([]);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>(
@@ -53,6 +62,8 @@ export const TrainingMaterials: React.FC = () => {
     {}
   );
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState<string>('');
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now();
@@ -64,9 +75,25 @@ export const TrainingMaterials: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!currentUser) return;
+
+    const fetchCourses = async () => {
+      const q = query(
+        collection(db, 'courses'),
+        where('instructorId', 'array-contains', currentUser.uid)
+      );
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Course[];
+      setCourses(data);
+    };
+
     const fetchMaterials = async () => {
       const q = query(
         collection(db, 'trainingMaterials'),
+        where('trainerId', '==', currentUser.uid),
         orderBy('uploadedAt', 'desc')
       );
       const snapshot = await getDocs(q);
@@ -82,14 +109,20 @@ export const TrainingMaterials: React.FC = () => {
       });
       setMaterials(data);
     };
+
+    fetchCourses();
     fetchMaterials();
-  }, []);
+  }, [currentUser]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
+    if (!e.target.files || !selectedCourse) {
+      showToast('Please select a course first', 'error');
+      return;
+    }
     const filesArray = Array.from(e.target.files).map((file) => ({
       file,
       description: '',
+      courseId: selectedCourse,
     }));
     setUploadQueue((prev) => [...prev, ...filesArray]);
   };
@@ -103,7 +136,15 @@ export const TrainingMaterials: React.FC = () => {
   };
 
   const startUpload = (fileWithDesc: FileWithDescription) => {
-    const { file, description } = fileWithDesc;
+    const { file, description, courseId } = fileWithDesc;
+    if (!currentUser) return;
+
+    const course = courses.find(c => c.id === courseId);
+    if (!course) {
+      showToast('Course not found', 'error');
+      return;
+    }
+
     const reader = new FileReader();
     reader.readAsDataURL(file);
 
@@ -127,9 +168,12 @@ export const TrainingMaterials: React.FC = () => {
           uploadedAt: Timestamp.now(),
           description,
           content: base64Content,
+          courseId,
+          courseName: course.title,
+          trainerId: currentUser.uid,
+          trainerName: currentUser.displayName || currentUser.email,
         });
 
-        // Add to materials only after Firestore save is complete
         setMaterials((prev) => [
           {
             id: docRef.id,
@@ -139,6 +183,10 @@ export const TrainingMaterials: React.FC = () => {
             uploadedAt: new Date(),
             description,
             content: base64Content,
+            courseId,
+            courseName: course.title,
+            trainerId: currentUser.uid,
+            trainerName: currentUser.displayName || currentUser.email,
           },
           ...prev,
         ]);
@@ -219,24 +267,45 @@ export const TrainingMaterials: React.FC = () => {
       </div>
 
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-          Training Materials
-        </h1>
-        <Button
-          onClick={() =>
-            document.getElementById('materialUpload')?.click()
-          }
-        >
-          <Upload className="w-4 h-4 mr-2" /> Upload File
-        </Button>
-        <input
-          type="file"
-          id="materialUpload"
-          className="hidden"
-          multiple
-          onChange={handleFileSelect}
-        />
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+            Training Materials
+          </h1>
+          <Button
+            onClick={() =>
+              document.getElementById('materialUpload')?.click()
+            }
+            disabled={!selectedCourse}
+          >
+            <Upload className="w-4 h-4 mr-2" /> Upload File
+          </Button>
+          <input
+            type="file"
+            id="materialUpload"
+            className="hidden"
+            multiple
+            onChange={handleFileSelect}
+          />
+        </div>
+
+        <div className="flex items-center gap-4">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Select Course:
+          </label>
+          <select
+            value={selectedCourse}
+            onChange={(e) => setSelectedCourse(e.target.value)}
+            className="flex-1 px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">-- Select a course --</option>
+            {courses.map((course) => (
+              <option key={course.id} value={course.id}>
+                {course.title}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Upload queue */}
@@ -308,6 +377,11 @@ export const TrainingMaterials: React.FC = () => {
               <span className="font-medium text-gray-900 dark:text-gray-100">
                 {mat.name}
               </span>
+              {mat.courseName && (
+                <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                  Course: {mat.courseName}
+                </span>
+              )}
               {mat.description && (
                 <span className="text-xs text-gray-500 dark:text-gray-400">
                   {mat.description}

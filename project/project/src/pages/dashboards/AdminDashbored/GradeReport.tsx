@@ -118,7 +118,6 @@ export default function GradeReport() {
     }
   };
 
-// ✅ Save or update trainee records in "finalGrade"
 const handleSaveAll = async () => {
   try {
     for (const t of grades) {
@@ -156,12 +155,8 @@ const handleSaveAll = async () => {
       }
     }
 
-    // ✅ CLEAR GRADE NOTIFICATION FLAG
-    await setDoc(doc(db, "systemFlags", "gradeNotifications"), {
-      clearedAt: serverTimestamp(),
-    });
-
-    alert("✅ Grades saved and notifications cleared!");
+    await logActivity("Admin", "saved", "all final grades", "Grade report updated");
+    alert("✅ Grades saved successfully!");
   } catch (error) {
     console.error("Error saving grades:", error);
     alert("❌ Failed to save grades. Check console for details.");

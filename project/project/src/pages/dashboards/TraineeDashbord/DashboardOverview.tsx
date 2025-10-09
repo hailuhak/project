@@ -1,11 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "../../../components/ui/Button";
 import { Plus } from "lucide-react";
 import { Card, CardContent, CardHeader } from "../../../components/ui/Card";
-import { RecentActivity } from "../../../components/Cards/RecentActivity";
+import { RecentActivity, ActivityLog } from "../../../components/Cards/RecentActivity";
 import { CourseCard } from "../../../components/courses/CourseCard";
 import { User, Course } from "../../../types";
 import { useCourses } from "../../../hooks/useCourses";
+import { collection, query, where, orderBy, limit, onSnapshot } from "firebase/firestore";
+import { db } from "../../../lib/firebase";
 
 interface DashboardOverviewProps {
   currentUser: User;
@@ -18,8 +20,38 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ currentUse
   const [selectedCourse, setSelectedCourse] = useState<string>("");
   const [successMessage, setSuccessMessage] = useState<string>("");
   const [showSuccess, setShowSuccess] = useState<boolean>(false);
+  const [recentActivities, setRecentActivities] = useState<ActivityLog[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(true);
 
-  // Filter available courses to enroll
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    const q = query(
+      collection(db, "activityLogs"),
+      where("userId", "==", currentUser.uid),
+      orderBy("timestamp", "desc"),
+      limit(5)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const activities: ActivityLog[] = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          userName: data.userName || currentUser.displayName || "User",
+          action: data.action || "",
+          target: data.target || "",
+          details: data.details || "",
+          timestamp: data.timestamp?.toDate() || new Date(),
+        };
+      });
+      setRecentActivities(activities);
+      setLoadingActivities(false);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
   const availableCourses: Course[] = allCourses.filter(
     (course) => !enrolledCourseIds.includes(course.id) && course.status === "active"
   );
@@ -103,9 +135,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ currentUse
           </Card>
         </div>
 
-        {/* Recent Activity */}
         <div>
-          <RecentActivity />
+          <RecentActivity logs={recentActivities} loading={loadingActivities} limitCount={5} />
         </div>
       </div>
 

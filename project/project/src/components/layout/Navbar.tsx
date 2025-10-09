@@ -28,31 +28,37 @@ export const Navbar: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // Fetch trainer/admin notifications (unsaved grades)
   useEffect(() => {
-    let gradesData: any[] = [];
-    let finalGradesData: any[] = [];
+    const unsubscribeGrades = onSnapshot(collection(db, 'grades'), (gradesSnapshot) => {
+      const unsubscribeFinal = onSnapshot(collection(db, 'finalGrade'), (finalSnapshot) => {
+        const gradesByTrainee: { [key: string]: any } = {};
+        const finalGradesByTrainee: { [key: string]: any } = {};
 
-    const updateTrainerNotifications = (grades: any[], finalGrades: any[]) => {
-      const unsavedGrades = grades.filter((g) => !finalGrades.some((f) => f.id === g.id));
-      const trainersWithUnsaved = new Set(unsavedGrades.map((g) => g.trainerId || g.adminId));
-      setTrainerNotifications(trainersWithUnsaved);
-    };
+        gradesSnapshot.docs.forEach((doc) => {
+          const data = doc.data();
+          const key = `${data.traineeId}_${data.courseId}`;
+          gradesByTrainee[key] = data;
+        });
 
-    const unsubscribeGrades = onSnapshot(query(collection(db, 'grades'), orderBy('updatedAt', 'desc')), (snapshot) => {
-      gradesData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      updateTrainerNotifications(gradesData, finalGradesData);
+        finalSnapshot.docs.forEach((doc) => {
+          const data = doc.data();
+          if (data.courses && Array.isArray(data.courses)) {
+            data.courses.forEach((course: any) => {
+              const key = `${data.traineeId}_${course.courseId}`;
+              finalGradesByTrainee[key] = true;
+            });
+          }
+        });
+
+        const unsavedCount = Object.keys(gradesByTrainee).filter(key => !finalGradesByTrainee[key]).length;
+        const notificationSet = unsavedCount > 0 ? new Set(['admin']) : new Set();
+        setTrainerNotifications(notificationSet);
+      });
+
+      return () => unsubscribeFinal();
     });
 
-    const unsubscribeFinal = onSnapshot(collection(db, 'finalGrades'), (snapshot) => {
-      finalGradesData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      updateTrainerNotifications(gradesData, finalGradesData);
-    });
-
-    return () => {
-      unsubscribeGrades();
-      unsubscribeFinal();
-    };
+    return () => unsubscribeGrades();
   }, []);
 
   // Fetch current user info from Firestore
